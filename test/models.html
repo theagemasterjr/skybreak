@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>duelist model check</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#1a1430}canvas{display:block}</style>
+<script type="importmap">
+{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { DUELIST_BUILDERS } from '../src/duelistModels.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#2b2145');
+scene.add(new THREE.HemisphereLight(0x8a9ce0, 0xb06a45, 1.1));
+const sun = new THREE.DirectionalLight(0xffd9a3, 2.6);
+sun.position.set(4, 7, 6);
+scene.add(sun);
+const floor = new THREE.Mesh(
+  new THREE.CylinderGeometry(14, 14, 0.4, 48),
+  new THREE.MeshStandardMaterial({ color: 0x4a3f66, roughness: 1 })
+);
+floor.position.y = -0.2;
+scene.add(floor);
+
+const groups = [];
+Object.keys(DUELIST_BUILDERS).forEach((id, i) => {
+  const built = DUELIST_BUILDERS[id]();
+  built.group.position.x = (i - 2) * 2.4;
+  scene.add(built.group);
+  groups.push(built);
+});
+
+const cam = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+cam.position.set(0, 2.6, 9.5);
+cam.lookAt(0, 1.15, 0);
+
+let t = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  t += 1 / 60;
+  for (const b of groups) {
+    b.group.rotation.y = Math.sin(t * 0.6) * 0.5;
+    // little run-cycle preview so limbs are visibly rigged
+    const s = Math.sin(t * 6);
+    b.parts.legL.rotation.x = s * 0.7;
+    b.parts.legR.rotation.x = -s * 0.7;
+    b.parts.armL.rotation.x = -s * 0.5;
+    b.parts.armR.rotation.x = s * 0.5;
+  }
+  renderer.render(scene, cam);
+}
+frame();
+document.title = 'models-ready';
+</script>
+</body>
+</html>

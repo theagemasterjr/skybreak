@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SKYBREAK duel test harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; }
+  body { display: flex; }
+  iframe { flex: 1; height: 100%; border: 0; border-right: 2px solid #333; }
+</style>
+</head>
+<body>
+<!-- two full game clients side by side, pointed at the local test broker -->
+<iframe id="p1" src="/?peerhost=127.0.0.1&peerport=9788&peersecure=0"></iframe>
+<iframe id="p2" src="/?peerhost=127.0.0.1&peerport=9788&peersecure=0"></iframe>
+<script>
+  // convenience handles for driving both clients from the console
+  window.g1 = () => document.getElementById('p1').contentWindow.SKYBREAK;
+  window.g2 = () => document.getElementById('p2').contentWindow.SKYBREAK;
+</script>
+</body>
+</html>
