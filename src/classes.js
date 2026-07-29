@@ -664,8 +664,11 @@ export const CLASSES = {
         const fwd = ctx.player.forwardDir(false);
         for (const e of hits) {
           ctx.dealDamage(e, 16, { knockback: _v1.copy(fwd).multiplyScalar(7).setY(3.5) });
+          ctx.effects.burst(e.position.clone().setY(e.position.y + e.height * 0.6), {
+            count: 10, color: 0xffe9a8, speed: 6, size: 0.22, life: 0.3,
+          });
         }
-        if (hits.length) { ctx.shake(0.1); ctx.game.hitstop(0.03); ctx.audio?.play('slash'); }
+        if (hits.length) { ctx.shake(0.13); ctx.game.hitstop(0.03); ctx.audio?.play('slash'); }
         else ctx.audio?.play('whoosh');
       },
     },
@@ -682,7 +685,7 @@ export const CLASSES = {
           for (const e of hits) {
             const kb = _v1.copy(dir).setY(0).normalize().multiplyScalar(17 + 9 * p);
             kb.y = 5 + 3 * p;
-            ctx.dealDamage(e, 12 * (1 + 0.5 * p), { knockback: kb });
+            ctx.dealDamage(e, 15 * (1 + 0.5 * p), { knockback: kb });
           }
           const front = ctx.player.position.clone().addScaledVector(ctx.player.forwardDir(false), 2.5);
           front.y += 1.2;
@@ -712,9 +715,12 @@ export const CLASSES = {
             const pull = _v1.copy(ctx.player.position).sub(target.position);
             const dist = pull.length();
             pull.normalize().multiplyScalar(Math.min(dist * 2.2, 34)).y = 6;
-            ctx.dealDamage(target, 10, { knockback: pull });
+            ctx.dealDamage(target, 14, { knockback: pull });
+            ctx.effects.impactBurst(tp, { color: 0xffe9a8, size: 1.8 });
             target.aggro = true;
           }
+          ctx.game.hitstop(0.03);
+          ctx.shake(0.1);
           ctx.audio?.play('pull');
         },
       },
@@ -729,7 +735,8 @@ export const CLASSES = {
           state.drT = 1.5;
           ctx.effects.glow(c.clone().add(_v1.set(0, 1.3, 0)), { color: 0xffd76a, size: 3.5, life: 0.5, grow: 3 });
           ctx.effects.ring(c, { color: 0xffd76a, endRadius: 20, life: 0.6, thickness: 0.4, opacity: 0.5 });
-          ctx.shake(0.25);
+          ctx.game.hitstop(0.05);
+          ctx.shake(0.3);
           ctx.audio?.play('roar');
         },
       },
@@ -739,6 +746,11 @@ export const CLASSES = {
         execute(ctx) {
           const p = ctx.chargePower || 0;
           ctx.game.spawnDome(ctx.player.position.clone(), 6 + 2.5 * p, 6 + 3 * p);
+          const c = ctx.player.position.clone(); c.y += 1.2;
+          ctx.effects.impactBurst(c, { color: 0xffe9a8, size: 3.5 });
+          ctx.effects.burst(c, { count: 24, color: 0xffe9a8, color2: 0xffd76a, speed: 8, size: 0.26, life: 0.5, gravity: -2 });
+          ctx.game.hitstop(0.05);
+          ctx.shake(0.2);
           ctx.audio?.play('dome');
         },
       },
@@ -933,21 +945,24 @@ export const CLASSES = {
         ctx.viewmodel.trigger('punch');
         const hits = ctx.meleeHit(3.4, 2.6);
         const fwd = ctx.player.forwardDir(false);
+        let anyBehind = false;
         for (const e of hits) {
           const toPlayer = _v1.copy(ctx.player.position).sub(e.position).normalize();
           const behind = e.facing && toPlayer.dot(e.facing) < -0.25;
+          if (behind) anyBehind = true;
           let dmg = 16;
           if (behind) dmg *= 2.2;
           ctx.dealDamage(e, dmg, { knockback: _v2.copy(fwd).multiplyScalar(5).setY(2.5), poison: voidPoison() });
-          if (behind) {
-            ctx.effects.burst(e.position.clone().setY(e.position.y + e.height * 0.7), {
-              count: 16, color: 0xbb66ff, speed: 8, size: 0.26, life: 0.4,
-            });
-            ctx.game.hitstop(0.035);
-          }
+          // every hit gets real feedback now — backstabs just hit harder
+          ctx.effects.burst(e.position.clone().setY(e.position.y + e.height * 0.7), {
+            count: behind ? 16 : 9, color: 0xbb66ff, speed: behind ? 8 : 6, size: behind ? 0.26 : 0.2, life: behind ? 0.4 : 0.28,
+          });
         }
-        if (hits.length) ctx.audio?.play('slash');
-        else ctx.audio?.play('whoosh');
+        if (hits.length) {
+          ctx.game.hitstop(anyBehind ? 0.045 : 0.022);
+          ctx.shake(anyBehind ? 0.18 : 0.09);
+          ctx.audio?.play('slash');
+        } else ctx.audio?.play('whoosh');
       },
     },
     abilities: [
@@ -1004,6 +1019,8 @@ export const CLASSES = {
           ctx.effects.glow(target.position.clone().setY(target.position.y + target.height + 0.6), {
             color: 0xff44aa, size: 1.4, life: 0.8,
           });
+          ctx.effects.impactBurst(target.center(new THREE.Vector3()), { color: 0xff44aa, size: 1.6 });
+          ctx.game.hitstop(0.03);
           ctx.audio?.play('mark');
         },
       },

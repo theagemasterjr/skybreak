@@ -22,6 +22,9 @@ export const ENEMY_TYPES = {
   bomber:   { hp: 26,  radius: 0.45, height: 1.0, speed: 10.5, flying: false, elite: false, score: 1 },
   golem:    { hp: 260, radius: 1.3,  height: 3.3, speed: 3.1, flying: false, elite: true,  score: 5 },
   knight:   { hp: 170, radius: 0.6,  height: 2.2, speed: 8.5, flying: false, elite: true,  score: 5 },
+  wraith:     { hp: 30,  radius: 0.45, height: 1.7, speed: 10,   flying: true, elite: false, score: 1 },
+  swarmling:  { hp: 9,   radius: 0.28, height: 0.45, speed: 13,  flying: true, elite: false, score: 1 },
+  sentinel:   { hp: 240, radius: 1.1,  height: 2.4, speed: 10,   flying: true, elite: true,  score: 5 },
 };
 
 // codex entries (names match the model builders' codenames)
@@ -65,6 +68,21 @@ export const ENEMY_INFO = {
     name: 'Storm Knight', threat: 'ELITE',
     blurb: 'An armored duelist that fights like a player: gap-closing dashes, two-hit sword combos, aerial bolt volleys — and it dodges sideways when you aim straight at it.',
     tip: 'Don’t stare it down; flick your aim. Punish it right after its combo whiffs.',
+  },
+  wraith: {
+    name: 'Gale Wraith', threat: 'Common',
+    blurb: 'A swirling wind spirit that circles at range on a deliberately erratic path, firing bursts of piercing wind-blades. Sometimes yanks you toward it with a gust.',
+    tip: 'Its flight path is jittery on purpose — don’t try to lead your shots the way you would a Sky Stinger, just keep it in your crosshair and burn it down.',
+  },
+  swarmling: {
+    name: 'Skyshard Swarmling', threat: 'Swarm',
+    blurb: 'Tiny glowing shard-insects that mob you in a loose flock. Individually harmless, but they burst into homing mini-shards when they die.',
+    tip: 'Kill them fast and from a bit of range — the death-burst shards are weak but there are a lot of swarmlings.',
+  },
+  sentinel: {
+    name: 'Tempest Sentinel', threat: 'ELITE',
+    blurb: 'A hovering four-winged construct. Alternates a tracking 5-bolt volley with a full-commit dash straight through your position.',
+    tip: 'The dash is a hard telegraph and total commitment — dodge it and punish the recovery. Don’t stand still during the volley phase.',
   },
 };
 
@@ -181,6 +199,20 @@ export class Enemy {
       speed: this.elite ? 12 : 8, size: 0.3, life: 0.5,
     });
     this.game.effects.glow(c, { color: 0xfff2cc, size: this.elite ? 3 : 1.6, life: 0.3, grow: 4 });
+    // swarmlings scatter into a few weak homing shards on death, so thinning
+    // a flock still carries a little bit of a sting
+    if (this.type === 'swarmling') {
+      const g = this.game;
+      for (let i = 0; i < 3; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const dir = new THREE.Vector3(Math.cos(a), 0.15, Math.sin(a));
+        g.projectiles.spawn({
+          pos: c.clone(), vel: dir.multiplyScalar(9),
+          owner: 'enemy', damage: 4 * this.dmgMul, color: 0xffcc55, size: 0.22,
+          homing: 0.6, gravity: 0, life: 1.4, knockback: 3,
+        });
+      }
+    }
     if (this.game.onEnemyKilled) this.game.onEnemyKilled(this, source);
     this.game.audio?.play(this.elite ? 'eliteDeath' : 'enemyDeath');
   }
@@ -371,9 +403,11 @@ export class Enemy {
       g.effects.glow(this.center(_v1).clone(), { color: 0xffd76a, size: this.radius * 3, life: 0.3 });
     }
 
-    // hp bar
+    // hp bar (guard on this.alive: a behavior can self-kill mid-update, e.g.
+    // the bomber's detonate — without this, this line runs *after* that flips
+    // alive=false and re-shows the bar since hp(0) < maxHp reads as "damaged")
     const damaged = this.hp < this.maxHp;
-    this.barGroup.visible = damaged;
+    this.barGroup.visible = this.alive && damaged;
     if (damaged) {
       this.barGroup.position.copy(this.position);
       this.barGroup.position.y += this.height + 0.55;
@@ -799,6 +833,139 @@ const BEHAVIORS = {
     e.moveToward(desired, e.speed * 0.8, dt);
     e.faceToward(player.position, dt);
   },
+
+  // -- wraith: erratic mid-range orbit, wind-blade bursts, occasional gust pull --
+  wraith(e, dt, time) {
+    const g = e.game;
+    const target = e.threat();
+    const s = e.s;
+    s.wanderA = (s.wanderA ?? Math.random() * Math.PI * 2) + dt * (0.7 + Math.sin(time * 0.6 + e.position.x) * 0.9);
+    s.wanderR = (s.wanderR ?? 12) + Math.sin(time * 1.7 + e.position.z) * dt * 6;
+    s.wanderR = clamp(s.wanderR, 8, 16);
+    if (s.burst > 0) {
+      s.burst -= dt;
+      e.faceToward(g.player.position, dt, 10);
+      s.shotT -= dt;
+      if (s.shotT <= 0 && s.shots > 0) {
+        s.shots--;
+        s.shotT = 0.14;
+        const from = e.center(new THREE.Vector3());
+        const dir = _v1.copy(g.player.position).setY(g.player.position.y + 1).sub(from).normalize();
+        e.shoot(from, dir, { speed: 27, damage: 7, color: 0x8fd6ff, size: 0.32 });
+      }
+      return;
+    }
+    // erratic hover: jittery radius + speed on top of the base orbit, unlike
+    // the flyer's smooth predictable circling
+    _v1.set(
+      target.x + Math.cos(s.wanderA) * s.wanderR,
+      g.player.position.y + 3.5 + Math.sin(time * 1.1 + s.wanderA * 1.3) * 2.2,
+      target.z + Math.sin(s.wanderA) * s.wanderR
+    );
+    _v2.copy(_v1).sub(e.position);
+    e.vel.addScaledVector(_v2.normalize(), 12 * dt);
+    e.faceToward(g.player.position, dt, 5);
+    if (e.attackCd <= 0 && e.canSeePlayer()) {
+      if (Math.random() < 0.3) {
+        // gust pull: tug the player a step toward the wraith
+        const pull = _v1.copy(e.position).sub(g.player.position).setY(0).normalize().multiplyScalar(6);
+        pull.y = 2;
+        g.player.applyKnockback(pull);
+        g.effects.ring(e.center(new THREE.Vector3()), { color: 0x8fd6ff, endRadius: 3, life: 0.3, opacity: 0.5 });
+        g.audio?.play('whoosh');
+      }
+      s.burst = 0.5;
+      s.shots = 2;
+      s.shotT = 0;
+      e.attackCd = 2.2 + Math.random();
+    }
+  },
+
+  // -- swarmling: rush the player in a loose flock, weak contact bites --
+  swarmling(e, dt) {
+    const g = e.game;
+    const target = e.threat();
+    const dist = e.position.distanceTo(g.player.position);
+    if (dist < 1.9 && e.attackCd <= 0) {
+      e.meleeStrike(1.7, 5, 3);
+      e.attackCd = 0.85;
+    } else {
+      e.moveToward(target, e.speed, dt, { keepDistance: 1.3 });
+    }
+  },
+
+  // -- sentinel elite: alternates a 5-bolt tracking fan with a dash-through --
+  sentinel(e, dt, time) {
+    const g = e.game;
+    const player = g.player;
+    const target = e.threat();
+    const dist = e.position.distanceTo(player.position);
+    const s = e.s;
+    if (s.dash) {
+      s.dash.t -= dt;
+      e.vel.copy(s.dash.dir).multiplyScalar(38);
+      if (Math.random() < dt * 30) {
+        g.effects.glow(e.center(new THREE.Vector3()), { color: 0x44ddff, size: 1.1, life: 0.25 });
+      }
+      if (!s.dash.hit) {
+        _v1.copy(player.position).setY(player.position.y + 0.9);
+        if (e.center(_v2).distanceTo(_v1) < e.radius + 1.1) {
+          s.dash.hit = true;
+          if (player.takeDamage(24 * e.dmgMul, e.position)) {
+            player.applyKnockback(_v1.sub(e.position).setY(0).normalize().multiplyScalar(14).setY(8));
+            g.audio?.play('playerHurt');
+          }
+        }
+      }
+      if (s.dash.t <= 0) {
+        s.dash = null;
+        e.attackCd = 3.2;
+        g.effects.burst(e.center(new THREE.Vector3()), { count: 20, color: 0x66eaff, speed: 9, size: 0.28, life: 0.4 });
+      }
+      return;
+    }
+    if (s.volley > 0) {
+      s.volley -= dt;
+      e.faceToward(player.position, dt, 8);
+      s.volleyT -= dt;
+      if (s.volleyT <= 0 && s.volleyN > 0) {
+        s.volleyN--;
+        s.volleyT = 0.11;
+        const from = e.center(new THREE.Vector3());
+        const base = _v1.copy(player.position).setY(player.position.y + 1).sub(from).normalize();
+        const spread = (s.volleyN - 2) * 0.16; // fan: -2..2 slots around center
+        const dir = base.clone();
+        dir.x += spread; dir.normalize();
+        e.shoot(from, dir, { speed: 30, damage: 9, color: 0x66eaff, size: 0.35 });
+      }
+      if (s.volley <= 0) e.attackCd = 3.0;
+      return;
+    }
+    if (e.attackCd <= 0 && e.canSeePlayer()) {
+      if (dist > 10 && dist < 34 && Math.random() < 0.5) {
+        s.dash = { t: Math.min(dist, 30) / 38 + 0.1, dir: _v1.copy(player.position).sub(e.position).normalize().clone(), hit: false };
+        g.audio?.play('dash');
+      } else {
+        s.volley = 0.66;
+        s.volleyN = 5;
+        s.volleyT = 0;
+        g.audio?.play('chargeStart');
+      }
+      return;
+    }
+    // hover at mid-range, orbiting slowly
+    const R = 15;
+    const orbitDir = (s.orbitSign ?? (s.orbitSign = Math.random() < 0.5 ? 1 : -1));
+    s.orbitA = (s.orbitA ?? Math.random() * Math.PI * 2) + dt * 0.35 * orbitDir;
+    _v1.set(
+      target.x + Math.cos(s.orbitA) * R,
+      player.position.y + 5 + Math.sin(time * 0.8) * 1.5,
+      target.z + Math.sin(s.orbitA) * R
+    );
+    _v2.copy(_v1).sub(e.position);
+    e.vel.addScaledVector(_v2.normalize(), 10 * dt);
+    e.faceToward(player.position, dt, 4);
+  },
 };
 
 // ===========================================================================
@@ -873,5 +1040,25 @@ const ANIMATIONS = {
     const target = attacking ? -2.2 : -0.5 + Math.sin(time * 2) * 0.1;
     e.parts.armR.rotation.z = damp(e.parts.armR.rotation.z, target, attacking ? 18 : 6, dt);
     e.parts.cape.rotation.x = 0.22 + Math.sin(time * 2.2) * 0.08 + Math.hypot(e.vel.x, e.vel.z) * 0.015;
+  },
+  wraith(e, dt, time) {
+    e.parts.ribbons.rotation.y += dt * (e.s.burst > 0 ? 5 : 2);
+    e.parts.ribbons.children.forEach((r, i) => {
+      r.rotation.x = 0.3 + Math.sin(time * 5 + i * 1.7) * 0.35;
+    });
+    e.parts.core.scale.setScalar(1 + Math.sin(time * 6) * 0.15);
+    e.model.rotation.z = clamp(-e.vel.x * 0.015, -0.3, 0.3);
+  },
+  swarmling(e, dt, time) {
+    const flap = Math.sin(time * 26 + e.position.x * 5) * 0.9;
+    e.parts.wingL.rotation.z = flap;
+    e.parts.wingR.rotation.z = -flap;
+    e.parts.core.rotation.y += dt * 6;
+  },
+  sentinel(e, dt, time) {
+    const s = e.s;
+    const spread = s.dash ? 1.6 : s.volley > 0 ? 1.3 : 1 + Math.sin(time * 1.4) * 0.08;
+    for (const wing of e.parts.wings) wing.scale.z = spread;
+    e.parts.core.scale.setScalar(1 + Math.sin(time * 3.5) * 0.14);
   },
 };

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clamp, damp, lerp } from './utils.js';
+import { World } from './world.js';
 
 // ---------------------------------------------------------------------------
 // Player: first-person aerial movement controller.
@@ -334,6 +335,31 @@ export class Player {
         this.grounded = true;
         this.jumpsLeft = 2;
         this.recoverAssistUsed = false;
+      }
+    }
+
+    // ---- island solid-volume collision -------------------------------
+    // groundHeightBelow above only ever *lands* you on top surfaces (it
+    // requires vel.y <= 0.01), so nothing ever stopped upward motion from
+    // underneath an island — you could fly up through the rock and pop out
+    // the top. Islands have a real underside (see World.islandBottomAt);
+    // treat the whole [bottom, top] span as solid and push out of it.
+    for (const isl of this.world.islands) {
+      const top = World.islandHeightAt(isl, this.position.x, this.position.z);
+      if (top === null) continue;
+      const bottom = World.islandBottomAt(isl, this.position.x, this.position.z);
+      if (bottom === null || this.position.y >= top || this.position.y <= bottom) continue;
+      if (prevY <= bottom + 0.05 || this.vel.y > 0) {
+        // rising into the underside from below: bonk, don't tunnel through
+        this.position.y = bottom;
+        if (this.vel.y > 0) this.vel.y = 0;
+      } else {
+        // ended up embedded some other way (e.g. fast fall past the swept
+        // check) — recover onto the top surface instead of falling through
+        this.position.y = top;
+        this.vel.y = 0;
+        this.grounded = true;
+        this.jumpsLeft = 2;
       }
     }
 

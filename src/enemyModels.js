@@ -329,6 +329,115 @@ export function buildKnight() {
   return { group: g, parts: { torso, armR, visor, cape, crest }, materials };
 }
 
+// ---- 9. Wraith: "Gale Wraith" — wispy wind spirit trailing ribbons ----
+export function buildWraith() {
+  const materials = [];
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.22, 1.35, 6), mat(0x6fb8e6, { emissive: 0x3a8fd0, ei: 0.6, rough: 0.4 }, materials));
+  body.position.y = 0.85;
+  body.castShadow = true;
+  g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 7, 6), mat(0x8fd6ff, { emissive: 0x5cc0ff, ei: 0.8 }, materials));
+  head.position.y = 1.62;
+  head.scale.y = 1.2;
+  g.add(head);
+  const eye = eyeMesh(0xe8faff, 0.08, materials);
+  eye.position.set(0, 1.64, 0.15);
+  eye.scale.set(1.6, 0.7, 1);
+  g.add(eye);
+  const core = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.15, 1),
+    mat(0xaee9ff, { emissive: 0x66d9ff, ei: 2.4, rough: 0.2 }, materials)
+  );
+  core.position.set(0, 1.0, 0.28);
+  g.add(core);
+  const ribbons = new THREE.Group();
+  for (let i = 0; i < 4; i++) {
+    const ribbon = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 1.1, 0.02),
+      mat(0x9fdcff, { emissive: 0x4aa8e0, ei: 1.1, rough: 0.5 }, materials)
+    );
+    const a = (i / 4) * Math.PI * 2;
+    ribbon.position.set(Math.cos(a) * 0.28, 0.55, Math.sin(a) * 0.28);
+    ribbon.rotation.y = a;
+    ribbon.rotation.x = 0.3;
+    ribbons.add(ribbon);
+  }
+  g.add(ribbons);
+  return { group: g, parts: { body, head, eye, core, ribbons }, materials };
+}
+
+// ---- 10. Swarmling: "Skyshard Swarmling" — tiny glowing shard-insect ----
+export function buildSwarmling() {
+  const materials = [];
+  const g = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.14, 0),
+    mat(0xffcc55, { emissive: 0xff9922, ei: 1.8, rough: 0.3 }, materials)
+  );
+  core.scale.y = 1.6;
+  core.castShadow = true;
+  g.add(core);
+  const mkWing = (side) => {
+    const wing = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.03, 0.09),
+      mat(0xffe0a0, { emissive: 0xffaa33, ei: 1.2, rough: 0.4 }, materials)
+    );
+    wing.position.set(side * 0.16, 0.02, 0);
+    g.add(wing);
+    return wing;
+  };
+  const wingL = mkWing(-1), wingR = mkWing(1);
+  return { group: g, parts: { core, wingL, wingR }, materials };
+}
+
+// ---- 11. Sentinel elite: "Tempest Sentinel" — hovering four-winged construct ----
+export function buildSentinel() {
+  const materials = [];
+  const g = new THREE.Group();
+  const plate = (c, e = 0) => mat(c, { metal: 0.55, rough: 0.4, emissive: e, ei: e ? 1.4 : 1 }, materials);
+  const torso = new THREE.Mesh(new THREE.DodecahedronGeometry(0.72, 0), plate(0x5a5f6e));
+  torso.position.y = 1.5;
+  torso.scale.set(1, 1.1, 0.9);
+  torso.castShadow = true;
+  g.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.4), plate(0x6c7284));
+  head.position.y = 2.1;
+  g.add(head);
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.07, 0.05), mat(0x66eaff, { emissive: 0x44ddff, ei: 3 }, materials));
+  visor.position.set(0, 2.1, 0.21);
+  g.add(visor);
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.34, 0),
+    mat(0x4ae0ff, { emissive: 0x2ab8ff, ei: 2.4, rough: 0.25 }, materials)
+  );
+  core.position.set(0, 1.5, 0.62);
+  g.add(core);
+  const wings = [];
+  for (let i = 0; i < 4; i++) {
+    const wing = new THREE.Group();
+    const blade = new THREE.Mesh(
+      new THREE.ConeGeometry(0.14, 1.5, 4),
+      plate(0x707788, 0x33c9e8)
+    );
+    blade.scale.z = 0.1;
+    blade.rotation.x = Math.PI / 2;
+    blade.position.z = 0.7;
+    const edge = new THREE.Mesh(
+      new THREE.BoxGeometry(0.02, 1.3, 0.05),
+      mat(0x66eaff, { emissive: 0x44ddff, ei: 2 }, materials)
+    );
+    edge.position.z = 0.65;
+    wing.add(blade, edge);
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    wing.position.set(Math.cos(a) * 0.5, 1.55, Math.sin(a) * 0.5);
+    wing.rotation.y = a;
+    g.add(wing);
+    wings.push(wing);
+  }
+  return { group: g, parts: { torso, head, core, wings }, materials };
+}
+
 export const MODEL_BUILDERS = {
   rusher: buildRusher,
   sniper: buildSniper,
@@ -338,4 +447,7 @@ export const MODEL_BUILDERS = {
   bomber: buildBomber,
   golem: buildGolem,
   knight: buildKnight,
+  wraith: buildWraith,
+  swarmling: buildSwarmling,
+  sentinel: buildSentinel,
 };

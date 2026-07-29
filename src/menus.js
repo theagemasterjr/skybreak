@@ -56,6 +56,7 @@ export class Menus {
         <p class="subtitle">Endless war above the clouds</p>
         <button class="btn primary" id="btn-play">SINGLEPLAYER</button>
         <button class="btn duel" id="btn-duel">DUEL <span class="btn-tag">1v1 ONLINE</span></button>
+        <button class="btn" id="btn-tutorial">TUTORIAL</button>
         <button class="btn" id="btn-codex-main">CODEX</button>
         <div class="menu-stats" id="main-stats"></div>
         <div class="controls-hint">
@@ -68,6 +69,7 @@ export class Menus {
     this.el.appendChild(s);
     s.querySelector('#btn-play').addEventListener('click', () => this.game.showSelect());
     s.querySelector('#btn-duel').addEventListener('click', () => this.game.duel.startMatchmaking());
+    s.querySelector('#btn-tutorial').addEventListener('click', () => this.game.startTutorial());
     s.querySelector('#btn-codex-main').addEventListener('click', () => this.openCodex('main'));
   }
 

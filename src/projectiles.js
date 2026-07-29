@@ -7,6 +7,19 @@ import * as THREE from 'three';
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _prevPos = new THREE.Vector3();
+
+// Squared distance from point (px,py,pz) to segment [a,b] — used so fast
+// projectiles can't tunnel through a target between two frames (at dt=0.05
+// a 46u/s projectile moves 2.3 units per frame, well past most hit radii).
+function distSqPointToSegment(px, py, pz, ax, ay, az, bx, by, bz) {
+  const abx = bx - ax, aby = by - ay, abz = bz - az;
+  const abLenSq = abx * abx + aby * aby + abz * abz;
+  let t = abLenSq > 1e-8 ? ((px - ax) * abx + (py - ay) * aby + (pz - az) * abz) / abLenSq : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const dx = px - (ax + abx * t), dy = py - (ay + aby * t), dz = pz - (az + abz * t);
+  return dx * dx + dy * dy + dz * dz;
+}
 
 export class Projectiles {
   constructor(scene, world, effects) {
@@ -71,6 +84,7 @@ export class Projectiles {
 
       p.vel.y -= p.gravity * dt;
       const prevY = p.pos.y;
+      _prevPos.copy(p.pos);
       p.pos.addScaledVector(p.vel, dt);
       p.mesh.position.copy(p.pos);
 
@@ -89,7 +103,7 @@ export class Projectiles {
           if (p.hitSet && p.hitSet.has(e)) continue;
           const hitR = p.radius + e.radius;
           _v1.copy(e.position); _v1.y += e.height * 0.5;
-          if (p.pos.distanceToSquared(_v1) < hitR * hitR) {
+          if (distSqPointToSegment(_v1.x, _v1.y, _v1.z, _prevPos.x, _prevPos.y, _prevPos.z, p.pos.x, p.pos.y, p.pos.z) < hitR * hitR) {
             this._dealToEnemy(p, e);
             if (p.pierce) { p.hitSet.add(e); }
             else { impacted = true; p.directHit = e; break; }
@@ -99,7 +113,7 @@ export class Projectiles {
         // enemy projectile vs player capsule (center at +0.9)
         _v1.copy(player.position); _v1.y += 0.9;
         const hitR = p.radius + 0.62;
-        if (player.alive && p.pos.distanceToSquared(_v1) < hitR * hitR) {
+        if (player.alive && distSqPointToSegment(_v1.x, _v1.y, _v1.z, _prevPos.x, _prevPos.y, _prevPos.z, p.pos.x, p.pos.y, p.pos.z) < hitR * hitR) {
           player.takeDamage(p.damage, p.pos);
           player.applyKnockback(_v2.copy(p.vel).normalize().multiplyScalar(p.knockback * 0.4).setY(2));
           impacted = true;

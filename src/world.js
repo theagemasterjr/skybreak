@@ -175,6 +175,21 @@ export class World {
     return island.topY + dome + bump;
   }
 
+  // Underside height (approx.) — mirrors the tapered rock cone from
+  // buildIslandGeometry's underVert, so islands are solid volumes with a
+  // bottom, not just a top-surface heightfield. Used to stop players from
+  // flying up through an island from underneath.
+  static islandBottomAt(island, x, z) {
+    const dx = x - island.x, dz = z - island.z;
+    const r = Math.hypot(dx, dz);
+    const theta = Math.atan2(dz, dx);
+    const edge = World.edgeRadius(island, theta);
+    if (r > edge) return null;
+    const t = 1 - r / edge; // 0 at rim (meets top surface), 1 at center (deepest)
+    const taper = Math.pow(t, 1 / 1.35);
+    return island.topY - (island.depth || 15) * 0.85 * taper;
+  }
+
   platformHeightAt(p, x, z, time) {
     const dx = x - p.x, dz = z - p.z;
     if (Math.hypot(dx, dz) > p.R) return null;
@@ -224,7 +239,7 @@ export class World {
     });
 
     for (const d of defs) {
-      const island = { x: d.x, z: d.z, topY: d.topY, R: d.R, domeH: d.domeH, edgeSeed: d.seed };
+      const island = { x: d.x, z: d.z, topY: d.topY, R: d.R, domeH: d.domeH, edgeSeed: d.seed, depth: d.depth };
       this.islands.push(island);
 
       const geo = buildIslandGeometry(island, d.depth, d.seed);

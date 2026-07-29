@@ -12,10 +12,15 @@ const SHOP = [
   { type: 'flyer',    cost: 1.2, minWave: 2 },
   { type: 'flyer',    cost: 1.2, minWave: 4 },   // double weight: the sky fills up
   { type: 'sniper',   cost: 1.5, minWave: 2 },
+  { type: 'wraith',   cost: 1.4, minWave: 3 },
   { type: 'bomber',   cost: 1.5, minWave: 4 },
+  { type: 'swarmling', cost: 2.4, minWave: 4 },  // one pick spawns a whole pack — see _nextWave
   { type: 'blinker',  cost: 2,   minWave: 5 },
   { type: 'shielder', cost: 2.5, minWave: 6 },
 ];
+
+const SWARM_PACK = [4, 6]; // [min, max] swarmlings spawned per 'swarmling' pick
+const FLYING_SPAWN_TYPES = new Set(['flyer', 'wraith', 'swarmling', 'sentinel']);
 
 const MAX_ALIVE = 13;
 
@@ -51,7 +56,8 @@ export class Waves {
     // guaranteed elites on a cadence
     if (w >= 7 && (w - 7) % 3 === 0) picks.push('knight');
     if (w >= 9 && (w - 9) % 3 === 0) picks.push('golem');
-    if (w >= 14 && w % 5 === 0) picks.push(Math.random() < 0.5 ? 'knight' : 'golem');
+    if (w >= 12 && (w - 12) % 4 === 0) picks.push('sentinel');
+    if (w >= 14 && w % 5 === 0) picks.push(['knight', 'golem', 'sentinel'][Math.floor(Math.random() * 3)]);
     // aerial pressure: guaranteed flyers so air combat stays central
     if (w >= 3) picks.push('flyer');
     if (w >= 6) picks.push('flyer');
@@ -62,7 +68,13 @@ export class Waves {
     while (left > 0.9 && guard-- > 0) {
       const pick = available[Math.floor(Math.random() * available.length)];
       if (pick.cost > left + 0.5) continue;
-      picks.push(pick.type);
+      if (pick.type === 'swarmling') {
+        // one pick = a whole pack, so a flock reads as a single "threat" for budget purposes
+        const n = SWARM_PACK[0] + Math.floor(Math.random() * (SWARM_PACK[1] - SWARM_PACK[0] + 1));
+        for (let i = 0; i < n; i++) picks.push('swarmling');
+      } else {
+        picks.push(pick.type);
+      }
       left -= pick.cost;
     }
     // shuffle so elites aren't always first
@@ -93,7 +105,7 @@ export class Waves {
     const x = island.x + Math.cos(a) * r;
     const z = island.z + Math.sin(a) * r;
     let y = island.topY + 2;
-    if (type === 'flyer') y += 7 + Math.random() * 4;
+    if (FLYING_SPAWN_TYPES.has(type)) y += 7 + Math.random() * 4;
     const pos = new THREE.Vector3(x, y, z);
     // don't spawn right on top of the player
     if (pos.distanceTo(p) < 8) {

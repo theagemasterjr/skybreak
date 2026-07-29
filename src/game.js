@@ -12,6 +12,7 @@ import { Menus } from './menus.js';
 import { Stats } from './stats.js';
 import { GameAudio } from './audio.js';
 import { Duel } from './duel.js';
+import { Tutorial } from './tutorial.js';
 
 // ---------------------------------------------------------------------------
 // Game: the orchestrator. Owns every subsystem, the game state machine,
@@ -86,6 +87,7 @@ export class Game {
     this.duel = new Duel(this);
     this.menus = new Menus(this, uiRoot);
     this.waves = new Waves(this);
+    this.tutorial = new Tutorial(this, uiRoot);
 
     // duel mode: successful casts replicate to the opponent as an attack anim
     this.onPlayerCast = (slot, power) => {
@@ -126,10 +128,12 @@ export class Game {
       if (!locked && this.state === 'playing') {
         if (this.mode === 'duel') this.menus.show('duelpause');
         else this.pause();
+      } else if (!locked && this.state === 'tutorial') {
+        this.toMenu();
       }
     });
     canvas.addEventListener('click', () => {
-      if (this.state === 'playing') this.input.requestLock();
+      if (this.state === 'playing' || this.state === 'tutorial') this.input.requestLock();
     });
 
     this.menus.show('main');
@@ -165,6 +169,7 @@ export class Game {
   }
 
   toMenu() {
+    if (this.state === 'tutorial') this.tutorial.exit();
     this._clearBattlefield();
     this.state = 'menu';
     this.mode = 'solo';
@@ -188,6 +193,25 @@ export class Game {
     this.state = 'playing';
     this.waves.reset();
     this.waves.start();
+    this.input.requestLock();
+    this.audio?.play('runStart');
+  }
+
+  // practice mode: one default class, no waves, no death screen, a couple
+  // of stationary dummies to hit. See src/tutorial.js.
+  startTutorial() {
+    this._clearBattlefield();
+    this.setClass('mage');
+    this.player.respawn();
+    this.player.freeze = false;
+    this.input.enabled = true;
+    this.hud.bindClass(this.combat.classDef, this.player.maxDashes);
+    this.hud.show();
+    this.menus.hideAll();
+    this.state = 'tutorial';
+    this.mode = 'solo';
+    this.waves.reset();
+    this.tutorial.start();
     this.input.requestLock();
     this.audio?.play('runStart');
   }
@@ -521,6 +545,7 @@ export class Game {
     this.effects.update(dt);
     if (this.waves) this.waves.update(dt, t);
     if (this.hud) this.hud.update(dt, t);
+    if (this.state === 'tutorial') this.tutorial.update(dt, t);
 
     this.input.endFrame();
   }
