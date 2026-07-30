@@ -38,6 +38,18 @@ function burstTexture() {
 }
 
 let _glowTex = null;
+let _beamGeo = null;
+function beamGeometry() {
+  if (!_beamGeo) _beamGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
+  return _beamGeo;
+}
+
+let _sphereGeo = null;
+function sphereGeometry() {
+  if (!_sphereGeo) _sphereGeo = new THREE.SphereGeometry(1, 20, 14);
+  return _sphereGeo;
+}
+
 function glowTexture() {
   if (_glowTex) return _glowTex;
   const c = document.createElement('canvas');
@@ -149,17 +161,19 @@ export class Effects {
   }
 
   // ---- beam between two points ----
+  // one shared unit cylinder, scaled per beam: building fresh geometry every
+  // shot made rapid-fire hitscan weapons (minigun) stutter
   beam(from, to, { color = 0x88ddff, radius = 0.14, life = 0.18, coreColor = 0xffffff } = {}) {
     const dir = _v.copy(to).sub(from);
     const len = dir.length();
     const group = new THREE.Group();
     const mk = (r, c, op) => {
-      const geo = new THREE.CylinderGeometry(r, r, len, 8, 1, true);
       const mat = new THREE.MeshBasicMaterial({
         color: c, transparent: true, opacity: op, depthWrite: false,
         blending: THREE.AdditiveBlending,
       });
-      const m = new THREE.Mesh(geo, mat);
+      const m = new THREE.Mesh(beamGeometry(), mat);
+      m.scale.set(r, len, r);
       m.rotation.x = Math.PI / 2;
       group.add(m);
       return mat;
@@ -181,8 +195,33 @@ export class Effects {
       },
       dispose: () => {
         scene.remove(group);
-        group.children.forEach(m => { m.geometry.dispose(); m.material.dispose(); });
+        // geometry is shared — only the materials belong to this beam
+        group.children.forEach(m => m.material.dispose());
       },
+    });
+  }
+
+  // ---- expanding sphere shell (3D pulses — shared geometry, cheap) ----
+  sphere(pos, { color = 0xffcc55, startRadius = 0.4, endRadius = 5, life = 0.3, opacity = 0.5 } = {}) {
+    const mat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const m = new THREE.Mesh(sphereGeometry(), mat);
+    m.position.copy(pos);
+    m.scale.setScalar(startRadius);
+    this.scene.add(m);
+    let t = 0;
+    const scene = this.scene;
+    this._add({
+      update: (dt) => {
+        t += dt;
+        const k = t / life;
+        m.scale.setScalar(startRadius + (endRadius - startRadius) * (1 - Math.pow(1 - k, 2.2)));
+        mat.opacity = opacity * Math.max(0, 1 - k);
+        return t < life;
+      },
+      dispose: () => { scene.remove(m); mat.dispose(); },
     });
   }
 

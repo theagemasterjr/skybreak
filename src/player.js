@@ -307,9 +307,11 @@ export class Player {
         this.vel.z *= hold;
       }
       // clamp horizontal speed (soft when airborne so dashes carry momentum)
+      // speedMul: class buff/debuff channel (Gambler) — composes with
+      // walkSpeed itself, which PvP slows overwrite directly
       const hv = _v1.set(this.vel.x, 0, this.vel.z);
       const hs = hv.length();
-      const maxH = this.walkSpeed;
+      const maxH = this.walkSpeed * (this.speedMul || 1);
       if (hs > maxH) {
         const over = hs - maxH;
         const decel = (this.grounded ? 60 : 8) * dt;

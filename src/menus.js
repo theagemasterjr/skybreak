@@ -161,7 +161,7 @@ export class Menus {
     s.innerHTML = `
       <div class="scrim"></div>
       <div class="menu-content wide">
-        <p class="select-heading">CHOOSE YOUR FIGHTER <span>press 1–5</span></p>
+        <p class="select-heading">CHOOSE YOUR FIGHTER <span>press 1–6</span></p>
         <p id="duel-select-note"></p>
         <div class="class-grid">${cols}</div>
       </div>
@@ -649,7 +649,7 @@ export class Menus {
     if (active('main') && (e.code === 'Enter' || e.code === 'Space')) {
       g.showSelect();
     } else if (active('select')) {
-      const idx = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code);
+      const idx = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code);
       if (idx >= 0) this._pickClass(CLASS_LIST[idx]);
     } else if (active('death') && e.code === 'Enter') {
       g.startRun(g.currentClassId);

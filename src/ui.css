@@ -123,6 +123,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   opacity: 0; white-space: nowrap;
 }
 #announce.sub { font-size: 2rem; color: var(--gold); }
+#announce.gold { color: var(--gold); text-shadow: 0 0 34px rgba(255, 210, 74, 0.8), 0 3px 16px rgba(0, 0, 0, 0.9); }
 #announce.pop { animation: announce 1.9s cubic-bezier(0.16, 1, 0.3, 1); }
 @keyframes announce {
   0% { opacity: 0; transform: translateX(-50%) scale(1.25); }
@@ -246,6 +247,66 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 }
 #charge-wrap.full #charge-label { color: var(--gold); }
 
+/* ---- the Gambler's slot machine (bottom left, above the health bar) ---- */
+#slot-machine {
+  position: absolute; left: 30px; bottom: 130px;
+  display: none; flex-direction: column; align-items: center; gap: 6px;
+}
+#slot-machine.active { display: flex; }
+.sm-reels {
+  display: flex; gap: 6px;
+  padding: 8px 10px;
+  background: var(--ink-55); clip-path: var(--chamfer);
+  border-bottom: 2px solid var(--class-accent);
+}
+.sm-reel {
+  width: 52px; height: 56px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 10, 20, 0.85);
+  font-size: 1.9rem; line-height: 1;
+  overflow: hidden;
+}
+.sm-reel span { filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.8)); }
+.sm-reel.lock { animation: sm-lock 0.22s ease-out; }
+@keyframes sm-lock {
+  0% { transform: translateY(-14px); filter: brightness(2); }
+  60% { transform: translateY(3px); }
+  100% { transform: none; filter: none; }
+}
+#sm-timer {
+  width: 170px; height: 5px;
+  background: var(--ink-80); clip-path: var(--chamfer);
+  opacity: 0; transition: opacity 0.15s;
+}
+#sm-timer.on { opacity: 1; }
+#sm-timer-fill {
+  height: 100%; width: 0;
+  background: var(--gold); box-shadow: 0 0 8px rgba(255, 210, 74, 0.6);
+}
+#sm-result {
+  min-height: 1.1em;
+  font-size: 0.78rem; font-weight: 800; letter-spacing: 0.22em; text-indent: 0.22em;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+#sm-result.good { color: var(--text); }
+#sm-result.jackpot { color: var(--gold); text-shadow: 0 0 14px rgba(255, 210, 74, 0.9); animation: sm-jackpot 0.5s ease-out; }
+#sm-result.bad { color: #ff7788; }
+#slot-machine.jackpot .sm-reels {
+  border-bottom-color: var(--gold);
+  box-shadow: 0 0 26px rgba(255, 210, 74, 0.55);
+  animation: sm-jackpot 0.5s ease-out;
+}
+#slot-machine.bad .sm-reels {
+  border-bottom-color: #ff5566;
+  box-shadow: 0 0 18px rgba(255, 85, 102, 0.4);
+  animation: slot-deny 0.25s ease-out;
+}
+#slot-machine.land .sm-reels { animation: slot-cast 0.3s ease-out; }
+@keyframes sm-jackpot {
+  0% { transform: scale(1.18); filter: brightness(2.2); }
+  100% { transform: none; filter: none; }
+}
+
 /* ---- floating damage numbers ---- */
 #dmg-numbers { position: absolute; inset: 0; overflow: hidden; }
 .dmg-num {
@@ -283,7 +344,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   position: relative; text-align: center; max-width: 680px; padding: 24px;
   display: flex; flex-direction: column; align-items: center; gap: 18px;
 }
-.menu-content.wide { max-width: 1240px; width: 96%; }
+.menu-content.wide { max-width: 1500px; width: 97%; }
 
 .title {
   font-size: clamp(3.2rem, 9vw, 5.6rem);
@@ -361,14 +422,14 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .select-heading span { display: block; font-size: 0.72rem; color: var(--text-dim); letter-spacing: 0.2em; margin-top: 6px; font-weight: 600; }
 
 .class-grid {
-  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px;
   width: 100%;
 }
 @media (max-width: 1100px) { .class-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .class-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .class-col {
-  position: relative; padding: 20px 16px 16px;
+  position: relative; padding: 16px 12px 12px;
   background: linear-gradient(180deg, rgba(14, 17, 36, 0.72), rgba(14, 17, 36, 0.9));
   clip-path: var(--chamfer);
   border-top: 2px solid var(--accent);

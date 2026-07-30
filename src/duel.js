@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DuelNet } from './net.js';
 import { DuelOpponent } from './duelOpponent.js';
+import { recordingEffects, applyFx, killFxProps } from './fxNet.js';
 
 // ---------------------------------------------------------------------------
 // Duel: 1v1 online mode. Owns matchmaking, the message protocol, the round
@@ -113,6 +114,8 @@ export class Duel {
     this.avatar = new DuelOpponent(g, this, this.oppClass);
     g.enemies.push(this.avatar);
     g.projectiles.onSpawn = (o) => this._sendProjectile(o);
+    this._fxBuf = [];
+    g.playerFx = recordingEffects(g.effects, this._fxBuf);   // my ability VFX -> their screen
     this._baseWalkSpeed = g.player.walkSpeed;
     this._poison = null;
     this._slowT = 0;
@@ -133,6 +136,8 @@ export class Duel {
 
     g.projectiles.clear();
     g.resetCombatState();
+    killFxProps(this.avatar);   // stale rival props (orb, anchor) don't cross rounds
+    if (this._fxBuf) this._fxBuf.length = 0;
 
     const mine = this.role === 'host' ? SPAWNS.host : SPAWNS.guest;
     const theirs = this.role === 'host' ? SPAWNS.guest : SPAWNS.host;
@@ -245,6 +250,10 @@ export class Duel {
       c: g.combat && g.combat.charging ? 1 : 0,
       hp: Math.round(p.health), mh: p.maxHealth, sh: Math.round(p.shield),
     });
+    // batched ability VFX ride the same 20Hz cadence
+    if (this._fxBuf && this._fxBuf.length) {
+      this.net.send({ t: 'fx', l: this._fxBuf.splice(0) });
+    }
   }
 
   _checkStale(dt) {
@@ -274,6 +283,9 @@ export class Duel {
         break;
       case 'proj':
         this._spawnRemoteProjectile(m.o);
+        break;
+      case 'fx':
+        if (this.avatar) applyFx(this.game, m.l, this.avatar);
         break;
       case 'hit':
         this._applyHit(m);
@@ -316,6 +328,10 @@ export class Duel {
     if (!p.alive) return;
     const src = this.avatar ? this.avatar.position : null;
     p.takeDamage(m.d, src, { pierceInvuln: true });
+    // the hit lands ON me: show it landing (their client only shows their side)
+    const c = p.position.clone(); c.y += 1.1;
+    g.effects.impactBurst(c, { color: 0xffb0a0, size: Math.min(3.2, 1.3 + m.d * 0.05) });
+    g.effects.burst(c, { count: 8 + Math.min(14, Math.round(m.d * 0.4)), color: 0xff8877, speed: 7, size: 0.22, life: 0.3 });
     if (m.k) p.applyKnockback(new THREE.Vector3(m.k[0], m.k[1], m.k[2]));
     if (m.f > 0) p.root(m.f);
     if (m.sl > 0) this._slowT = Math.max(this._slowT, m.sl);
@@ -456,6 +472,7 @@ export class Duel {
     this.role = null;
     const g = this.game;
     g.projectiles.onSpawn = null;
+    g.playerFx = null;
     if (this._baseWalkSpeed) g.player.walkSpeed = this._baseWalkSpeed;
     g.mode = 'solo';
     g.toMenu();
@@ -463,6 +480,7 @@ export class Duel {
 
   _disposeAvatar() {
     if (!this.avatar) return;
+    killFxProps(this.avatar);
     const idx = this.game.enemies.indexOf(this.avatar);
     if (idx >= 0) this.game.enemies.splice(idx, 1);
     this.avatar.dispose();

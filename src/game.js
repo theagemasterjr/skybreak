@@ -300,6 +300,7 @@ export class Game {
   }
 
   _clearBattlefield() {
+    this.playerFx = null;   // multiplayer VFX recorder; duel/ffa re-attach after setup
     for (const e of this.enemies) e.dispose();
     this.enemies.length = 0;
     this.projectiles.clear();
@@ -318,7 +319,7 @@ export class Game {
   resetCombatState() {
     if (!this.combat) return;
     // remove any persistent class objects (rift anchor, focus reticle, ...)
-    for (const key of ['anchor', 'focusMesh', 'blue', 'nuke']) {
+    for (const key of ['anchor', 'focusMesh', 'blue', 'nuke', 'bombObj', 'cobra']) {
       const obj = this.combat.state[key];
       const mesh = obj && obj.mesh ? obj.mesh : obj;
       if (mesh && mesh.isObject3D) {
@@ -329,10 +330,23 @@ export class Game {
         });
       }
     }
+    // gambler's live pulsar bells (an array of meshes, not a single object)
+    for (const b of this.combat.state.bells || []) {
+      this.scene.remove(b.mesh);
+      b.mesh.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+    }
     this.combat.state = {};
     this.combat.charging = null;
     this.combat.lockT = 0;
     this.player.damageTakenMult = 1;
+    this.player.damageReduction = 0;
+    this.player.speedMul = 1;
+    // pending delayed casts (meteor call, slot payoffs) must not fire into the
+    // next round holding the old, discarded state object
+    this.combat.delays.length = 0;
     for (const k in this.combat.cooldowns) this.combat.cooldowns[k] = 0;
   }
 

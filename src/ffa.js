@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomNet, scanRooms, MAX_PLAYERS } from './roomNet.js';
 import { DuelOpponent } from './duelOpponent.js';
+import { recordingEffects, applyFx, killFxProps } from './fxNet.js';
 
 // ---------------------------------------------------------------------------
 // Ffa: free-for-all rooms. A named room holds up to 4 players; the creator
@@ -135,6 +136,7 @@ export class Ffa {
     const g = this.game;
     this.phase = 'idle';
     g.projectiles.onSpawn = null;
+    g.playerFx = null;
     if (this._baseWalkSpeed) g.player.walkSpeed = this._baseWalkSpeed;
     g.player.suppressCamera = false;
     if (g.combat) g.combat.viewmodel.group.visible = true;
@@ -228,6 +230,8 @@ export class Ffa {
     const myClass = this.net.me()?.data.cls || 'mage';
     g.startFfa(myClass);
     g.projectiles.onSpawn = (o) => this._sendProjectile(o);
+    this._fxBuf = [];
+    g.playerFx = recordingEffects(g.effects, this._fxBuf);   // my ability VFX -> everyone's screen
     this._baseWalkSpeed = g.player.walkSpeed;
 
     // avatars for everyone else in the roster
@@ -410,6 +414,10 @@ export class Ffa {
       c: g.combat && g.combat.charging ? 1 : 0,
       hp: Math.round(p.health), mh: p.maxHealth, sh: Math.round(p.shield),
     });
+    // batched ability VFX ride the same 20Hz cadence
+    if (this._fxBuf && this._fxBuf.length) {
+      this.net.send({ t: 'fx', l: this._fxBuf.splice(0) });
+    }
   }
 
   _onMessage(fromId, m) {
@@ -426,6 +434,11 @@ export class Ffa {
       }
       case 'proj':
         this._spawnRemoteProjectile(m.o);
+        break;
+      case 'fx':
+        if (this.phase === 'fighting' || this.phase === 'countdown' || this.phase === 'roundover') {
+          applyFx(this.game, m.l, this.avatars.get(fromId) || null);
+        }
         break;
       case 'hit':
         this._applyHit(m, fromId);
@@ -474,6 +487,10 @@ export class Ffa {
     this._lastAttacker = { id: fromId, t: KILL_CREDIT_T };
     const av = this.avatars.get(fromId);
     p.takeDamage(m.d, av ? av.position : null, { pierceInvuln: true });
+    // the hit lands ON me: show it landing (their client only shows their side)
+    const c = p.position.clone(); c.y += 1.1;
+    g.effects.impactBurst(c, { color: 0xffb0a0, size: Math.min(3.2, 1.3 + m.d * 0.05) });
+    g.effects.burst(c, { count: 8 + Math.min(14, Math.round(m.d * 0.4)), color: 0xff8877, speed: 7, size: 0.22, life: 0.3 });
     if (m.k) p.applyKnockback(new THREE.Vector3(m.k[0], m.k[1], m.k[2]));
     if (m.f > 0) p.root(m.f);
     if (m.sl > 0) this._slowT = Math.max(this._slowT, m.sl);
@@ -554,6 +571,7 @@ export class Ffa {
     // a player disconnected entirely (any phase)
     const av = this.avatars.get(id);
     if (av) {
+      killFxProps(av);
       av.die();
       const idx = this.game.enemies.indexOf(av);
       if (idx >= 0) this.game.enemies.splice(idx, 1);
@@ -611,6 +629,7 @@ export class Ffa {
     if (this.isHost) this.net.roomInfoExtra.inRound = false;
     this._disposeAvatars();
     g.projectiles.onSpawn = null;
+    g.playerFx = null;
     g.player.freeze = true;
     g.player.suppressCamera = false;
     if (g.combat) g.combat.viewmodel.group.visible = true;
@@ -625,6 +644,7 @@ export class Ffa {
 
   _disposeAvatars() {
     for (const [, av] of this.avatars) {
+      killFxProps(av);
       const idx = this.game.enemies.indexOf(av);
       if (idx >= 0) this.game.enemies.splice(idx, 1);
       av.dispose();

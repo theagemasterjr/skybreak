@@ -346,10 +346,74 @@ function buildAssassin() {
   });
 }
 
+// ---- The Gambler: casino-green suit, dealer's visor, giant lucky die ----
+function buildGambler() {
+  return buildHumanoid({
+    bulk: 0.95, metal: 0.1,
+    coat: 0x1d5c3f, pants: 0x17301f, boots: 0x101c14, belt: 0xf2c14e,
+    pads: 0x2a7a52, skin: 0xd9b48f, cape: 0x143026, accent: 0xffd24a,
+  }, (g, parts, materials, cfg) => {
+    // dealer's visor: dark brim + gold band
+    const brim = shadow(new THREE.Mesh(
+      new THREE.CylinderGeometry(0.24, 0.26, 0.05, 8, 1, false, 0, Math.PI),
+      mat(0x10241a, { rough: 0.4 }, materials)
+    ));
+    brim.position.set(0, 0.08, 0.14);
+    brim.rotation.y = Math.PI / 2;
+    brim.rotation.z = -0.15;
+    parts.head.add(brim);
+    const band = new THREE.Mesh(
+      new THREE.TorusGeometry(0.17, 0.028, 6, 14),
+      mat(0xf2c14e, { metal: 0.8, rough: 0.3, emissive: 0xaa7716, ei: 0.6 }, materials)
+    );
+    band.rotation.x = Math.PI / 2;
+    band.position.y = 0.06;
+    parts.head.add(band);
+    // gold bowtie
+    const tieM = mat(0xf2c14e, { metal: 0.7, rough: 0.35, emissive: 0xaa7716, ei: 0.5 }, materials);
+    const tieL = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.11, 4), tieM);
+    tieL.rotation.z = Math.PI / 2;
+    tieL.position.set(-0.06, 0.6, 0.2 * cfg.bulk);
+    parts.chest.add(tieL);
+    const tieR = tieL.clone(); tieR.rotation.z = -Math.PI / 2; tieR.position.x = 0.06;
+    parts.chest.add(tieR);
+    // the lucky die, held in the right hand
+    const die = new THREE.Group();
+    const bodyM = mat(0xf5f2e8, { rough: 0.45 }, materials);
+    const cube = shadow(new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), bodyM));
+    die.add(cube);
+    const pipM = mat(0x1a1420, { rough: 0.3 }, materials);
+    const pip = (x, y, z) => {
+      const p = new THREE.Mesh(new THREE.SphereGeometry(0.024, 6, 5), pipM);
+      p.position.set(x, y, z);
+      die.add(p);
+    };
+    const s = 0.11, o = 0.055;
+    pip(0, 0, s); pip(o, o, s); pip(-o, o, s); pip(o, -o, s); pip(-o, -o, s);
+    pip(s, o, o); pip(s, -o, -o); pip(s, o, -o); pip(s, -o, o);
+    pip(0, s, 0);
+    die.position.set(0, -0.55, 0.05);
+    die.rotation.set(0.4, 0.5, 0.2);
+    parts.armR.add(die);
+    parts.weapon = die;
+    // fan of cards tucked in the belt
+    const cardM = mat(0xf0ead8, { rough: 0.6 }, materials);
+    for (let i = 0; i < 3; i++) {
+      const card = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.13, 0.008), cardM);
+      card.position.set(-0.14 + i * 0.05, 0.05, 0.2 * cfg.bulk);
+      card.rotation.z = 0.4 - i * 0.35;
+      parts.hips.add(card);
+    }
+    parts.cape = mkCape(cfg, materials, 1.0);
+    parts.chest.add(parts.cape);
+  });
+}
+
 export const DUELIST_BUILDERS = {
   mage: buildMage,
   brawler: buildBrawler,
   reaver: buildReaver,
   sorcerer: buildSorcerer,
   assassin: buildAssassin,
+  gambler: buildGambler,
 };

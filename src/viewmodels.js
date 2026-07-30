@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { damp, clamp } from './utils.js';
 import { buildChampionViewRig } from './championAssets.js';
+import { buildDieMesh } from './gambler.js';
 
 // ---------------------------------------------------------------------------
 // ViewModel: the first-person hands/weapon rig attached to the camera.
@@ -14,7 +15,7 @@ function mat(color, { rough = 0.8, metal = 0, emissive = 0x000000, ei = 1 } = {}
 }
 
 const SKIN = 0xd9a066;
-const SLEEVE = { mage: 0x4a3f7a, brawler: 0x8a2f2a, reaver: 0x274a56, sorcerer: 0x1b1e2e, assassin: 0x2a2a33 };
+const SLEEVE = { mage: 0x4a3f7a, brawler: 0x8a2f2a, reaver: 0x274a56, sorcerer: 0x1b1e2e, assassin: 0x2a2a33, gambler: 0x1d5c3f };
 
 function makeHand(sleeveColor) {
   const g = new THREE.Group();
@@ -139,12 +140,33 @@ function buildAssassinRig() {
   return { group: g, focus: right, tint: 0x9a5fff, right, left };
 }
 
+function buildGamblerRig() {
+  const g = new THREE.Group();
+  // right hand holds the lucky die up like a showman
+  const hand = makeHand(SLEEVE.gambler);
+  const die = buildDieMesh(0.17);
+  die.position.set(0, 0.12, -0.04);
+  die.rotation.set(0.5, 0.65, 0.1);
+  hand.add(die);
+  // gold cufflink — a little flash on the wrist
+  const cuff = new THREE.Mesh(
+    new THREE.TorusGeometry(0.095, 0.018, 6, 12),
+    mat(0xf2c14e, { metal: 0.8, rough: 0.3, emissive: 0xaa7716, ei: 0.5 })
+  );
+  cuff.rotation.x = Math.PI / 2;
+  cuff.position.z = 0.05;
+  hand.add(cuff);
+  g.add(hand);
+  return { group: g, focus: die, tint: 0xffd24a };
+}
+
 const BUILDERS = {
   mage: buildMageRig,
   brawler: buildBrawlerRig,
   reaver: buildReaverRig,
   sorcerer: buildSorcererRig,
   assassin: buildAssassinRig,
+  gambler: buildGamblerRig,
 };
 
 export class ViewModel {

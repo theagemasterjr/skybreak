@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gamblerClass } from './gambler.js';
 
 // ---------------------------------------------------------------------------
 // The five classes. EVERY ability is hold-to-charge (ctx.chargePower 0..1):
@@ -17,7 +18,7 @@ function voidPoison(mult = 1) {
 }
 
 // ---- rift anchor helpers (mage E) ----
-function buildRiftMesh() {
+export function buildRiftMesh() {
   const g = new THREE.Group();
   const ringMat = new THREE.MeshBasicMaterial({
     color: 0xbb88ff, transparent: true, opacity: 0.9,
@@ -44,6 +45,7 @@ function buildRiftMesh() {
 
 function removeAnchor(ctx, state) {
   if (!state.anchor) return;
+  ctx.effects.prop?.('anchorEnd');
   ctx.game.scene.remove(state.anchor.mesh);
   state.anchor.mesh.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
@@ -53,7 +55,7 @@ function removeAnchor(ctx, state) {
 }
 
 // ---- sorcerer orb meshes ----
-function buildBlueOrb() {
+export function buildBlueOrb() {
   const g = new THREE.Group();
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(2.2, 24, 18),
@@ -103,7 +105,7 @@ function buildBlueOrb() {
   return g;
 }
 
-function buildPurpleOrb() {
+export function buildPurpleOrb() {
   const g = new THREE.Group();
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(1.0, 24, 18),
@@ -191,12 +193,14 @@ export const CLASSES = {
         ctx.slowFallIfAirborne(0.5);
         ctx.viewmodel.trigger('cast');
         const dir = ctx.aimDir();
+        const m = ctx.muzzle();
         ctx.projectiles.spawn({
-          pos: ctx.muzzle(), vel: dir.multiplyScalar(58),
+          pos: m.clone(), vel: dir.clone().multiplyScalar(58),
           damage: 11, aoe: 1.7, aoeDamage: 7, color: 0xff9944, size: 0.42,
           knockback: 6,
         });
-        ctx.effects.glow(ctx.muzzle(), { color: 0xffbb66, size: 0.8, life: 0.12 });
+        ctx.effects.glow(m, { color: 0xffbb66, size: 0.9, life: 0.12 });
+        ctx.effects.burst(m, { count: 5, color: 0xffcc77, color2: 0xff7722, speed: 5, size: 0.16, life: 0.2, direction: dir, spread: 0.5 });
         ctx.audio?.play('firebolt');
       },
     },
@@ -254,6 +258,7 @@ export const CLASSES = {
           mesh.position.copy(p.position);
           ctx.game.scene.add(mesh);
           state.anchor = { pos: p.position.clone(), t: 12 + pow * 8, mesh };
+          ctx.effects.prop?.('anchor', { p: [p.position.x, p.position.y, p.position.z], t: state.anchor.t });
           ctx.effects.ring(p.position.clone().add(_v1.set(0, 0.2, 0)), { color: 0xbb88ff, endRadius: 2, life: 0.4 });
           ctx.audio?.play('mark');
           return 0.8;
@@ -355,8 +360,17 @@ export const CLASSES = {
         }
       }
       // --- meteor slam: explode on landing ---
+      // dashing bails out of the dive — otherwise a slam over the void forces
+      // you down faster than recovery dashes can fight, and you just die
+      if (state.slamming && p.dashTimer > 0) state.slamming = false;
       if (state.slamming) {
         p.vel.y = Math.min(p.vel.y, -42);
+        // burning dive trail so the incoming crash reads from below
+        if (Math.random() < dt * 30) {
+          ctx.effects.glow(p.position.clone().add(_v2.set((Math.random() - 0.5) * 0.6, 0.7, (Math.random() - 0.5) * 0.6)), {
+            color: 0xff8833, size: 1.1, life: 0.2, grow: 1.5,
+          });
+        }
         if (p.grounded) {
           state.slamming = false;
           const pow = state.slamPow || 0;
@@ -418,12 +432,16 @@ export const CLASSES = {
         ctx.viewmodel.trigger('punch');
         const hits = ctx.meleeHit(3.6, 3.2);
         const fwd = ctx.player.forwardDir(true);
+        // swing streak so the punch reads even on a whiff (and on rivals' screens)
+        const m = ctx.muzzle();
+        ctx.effects.beam(m, m.clone().addScaledVector(fwd, 3.4), { color: 0xffaa55, radius: 0.07, life: 0.1 });
         for (const e of hits) {
           const kb = _v1.copy(fwd).multiplyScalar(8).setY(4);
           ctx.dealDamage(e, 16, { knockback: kb });
           ctx.effects.burst(e.position.clone().setY(e.position.y + e.height * 0.6), {
             count: 10, color: 0xffffff, speed: 6, size: 0.22, life: 0.3,
           });
+          ctx.effects.impactBurst(e.center(new THREE.Vector3()), { color: 0xffd9a0, size: 1.5 });
         }
         if (hits.length) { ctx.shake(0.12); ctx.game.hitstop(0.03); ctx.audio?.play('punchHit'); }
         else ctx.audio?.play('whoosh');
@@ -443,6 +461,8 @@ export const CLASSES = {
           ctx.player.invulnTimer = Math.max(ctx.player.invulnTimer, 0.25);
           ctx.viewmodel.trigger('heavy');
           ctx.effects.dashStreaks(ctx.camera);
+          ctx.effects.ring(ctx.muzzle(), { color: 0xff8833, endRadius: 2.2, life: 0.25, axis: 'x', thickness: 0.3 });
+          ctx.effects.burst(ctx.player.position.clone().add(_v1.set(0, 1, 0)), { count: 12, color: 0xffaa55, speed: 7, size: 0.22, life: 0.3 });
           ctx.audio?.play('charge');
         },
       },
@@ -533,6 +553,10 @@ export const CLASSES = {
           ctx.audio?.play('zap');
         }
         ctx.effects.glow(tip, { color: 0x66eaff, size: 1.2, life: 0.12 });
+        // storm wake: rings peeling off the spear tip
+        if (Math.random() < dt * 28) {
+          ctx.effects.ring(tip.clone(), { color: 0x66eaff, startRadius: 0.3, endRadius: 2, life: 0.22, axis: 'x', thickness: 0.18 });
+        }
         // lunge ends with the speed kept — that's the whole economy
       }
       // --- slipstream: free flight that drags anyone you touch along with you ---
@@ -579,6 +603,9 @@ export const CLASSES = {
         const p = ctx.player;
         const hits = ctx.meleeHit(5.5, 3.6);
         const fwd = p.forwardDir(true);
+        // spear-thrust streak: the poke reads even on a whiff
+        const m = ctx.muzzle();
+        ctx.effects.beam(m, m.clone().addScaledVector(fwd, 5.2), { color: 0x88eeff, radius: 0.06, life: 0.1 });
         for (const e of hits) {
           ctx.dealDamage(e, 10, { knockback: _v1.copy(fwd).multiplyScalar(8).setY(2.5) });
           const c = e.center(new THREE.Vector3());
@@ -728,6 +755,7 @@ export const CLASSES = {
           }
         }
         if (B.t <= 0 || !p.alive) {
+          ctx.effects.prop?.('blueEnd');
           ctx.effects.ring(B.pos.clone(), { color: 0x4488ff, endRadius: B.r, life: 0.45, thickness: 0.4 });
           ctx.effects.burst(B.pos.clone(), { count: 30, color: 0x88bbff, color2: 0x3355dd, speed: 12, size: 0.3, life: 0.5, gravity: 0 });
           ctx.game.scene.remove(B.mesh);
@@ -766,6 +794,7 @@ export const CLASSES = {
         if (N.t <= 0 && p.alive) {
           // FIRE.
           const firePos = orbPos.clone();
+          ctx.effects.prop?.('nukeEnd');
           ctx.game.scene.remove(N.mesh);
           N.disposeMesh();
           state.nuke = null;
@@ -790,6 +819,7 @@ export const CLASSES = {
           ctx.audio?.play('explosion');
         } else if (!p.alive && state.nuke) {
           // died mid-channel: fizzle
+          ctx.effects.prop?.('nukeEnd');
           ctx.game.scene.remove(N.mesh);
           N.disposeMesh();
           state.nuke = null;
@@ -807,6 +837,9 @@ export const CLASSES = {
         ctx.viewmodel.trigger('punch');
         const hits = ctx.meleeHit(3.6, 3.2);
         const fwd = ctx.player.forwardDir(true);
+        // cursed-energy swing streak, visible on whiffs and to rivals
+        const m = ctx.muzzle();
+        ctx.effects.beam(m, m.clone().addScaledVector(fwd, 3.4), { color: 0xc9a8ff, radius: 0.07, life: 0.1 });
         for (const e of hits) {
           ctx.dealDamage(e, 14, { knockback: _v1.copy(fwd).multiplyScalar(7).setY(3.5) });
           ctx.effects.burst(e.position.clone().setY(e.position.y + e.height * 0.6), {
@@ -853,6 +886,10 @@ export const CLASSES = {
             pos, vel: dir.multiplyScalar(14),
             t: 3.5 + 1.5 * p, r: 8 + 2.5 * p, tick: 0, mesh,
           };
+          ctx.effects.prop?.('blue', {
+            p: [pos.x, pos.y, pos.z], v: [state.blue.vel.x, state.blue.vel.y, state.blue.vel.z],
+            t: state.blue.t, r: state.blue.r,
+          });
           const rr = state.blue.r;
           mesh.getObjectByName('pullRadius').scale.setScalar(rr);
           mesh.getObjectByName('pullRadiusEdge').scale.setScalar(rr);
@@ -880,6 +917,7 @@ export const CLASSES = {
           };
           p.root(3.1);
           ctx.game.combat.lockT = 3.05;
+          ctx.effects.prop?.('nuke');
           ctx.viewmodel.trigger('heavy');
           ctx.effects.ring(p.position.clone().add(_v1.set(0, 1.2, 0)), { color: 0xa64dff, endRadius: 3, life: 0.4, axis: 'x', thickness: 0.3 });
           ctx.audio?.play('windup');
@@ -1115,6 +1153,10 @@ export const CLASSES = {
         ctx.viewmodel.trigger('punch');
         const hits = ctx.meleeHit(3.4, 2.6);
         const fwd = ctx.player.forwardDir(true);
+        // twin dagger streaks, visible on whiffs and to rivals
+        const m = ctx.muzzle();
+        ctx.effects.beam(m.clone().add(_v1.set(0.18, 0, 0)), m.clone().addScaledVector(fwd, 3.2), { color: 0xbb66ff, radius: 0.05, life: 0.09 });
+        ctx.effects.beam(m.clone().add(_v1.set(-0.18, 0, 0)), m.clone().addScaledVector(fwd, 3.2), { color: 0x9a5fff, radius: 0.05, life: 0.09 });
         let anyBehind = false;
         for (const e of hits) {
           const toPlayer = _v1.copy(ctx.player.position).sub(e.position).normalize();
@@ -1210,6 +1252,9 @@ export const CLASSES = {
       },
     ],
   },
+  // ============================================================ GAMBLER ==
+  // Lives in gambler.js: one ability (Pull the Lever) + the slot machine
+  gambler: gamblerClass,
 };
 
-export const CLASS_LIST = ['mage', 'brawler', 'reaver', 'sorcerer', 'assassin'];
+export const CLASS_LIST = ['mage', 'brawler', 'reaver', 'sorcerer', 'assassin', 'gambler'];

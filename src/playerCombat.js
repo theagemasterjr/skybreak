@@ -35,7 +35,8 @@ export class PlayerCombat {
       player: g.player,
       camera: g.camera,
       world: g.world,
-      effects: g.effects,
+      // in multiplayer, g.playerFx records every effect for replication to rivals
+      effects: g.playerFx || g.effects,
       projectiles: g.projectiles,
       audio: g.audio,
       game: g,
@@ -187,19 +188,20 @@ export class PlayerCombat {
     const t = this.charging.t / this.CHARGE_TIME;
     const color = this.classDef.color;
     const ctx = this._ctx();
+    const fx = ctx.effects;   // replicated in multiplayer: rivals see the wind-up
     const m = ctx.muzzle();
-    g.effects.glow(m, { color, size: 0.4 + t * 1.6, life: 0.09 });
+    fx.glow(m, { color, size: 0.4 + t * 1.6, life: 0.09 });
     // sparks converging into the muzzle
     for (let i = 0; i < 2; i++) {
       const off = new THREE.Vector3(
         (Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2
       );
       const from = m.clone().add(off);
-      g.effects.glow(from, { color, size: 0.16 + t * 0.15, life: 0.18, grow: -0.5 });
+      fx.glow(from, { color, size: 0.16 + t * 0.15, life: 0.18, grow: -0.5 });
     }
     if (t >= 1 && !this.charging.fullFxDone) {
       this.charging.fullFxDone = true;
-      g.effects.ring(m, { color, endRadius: 1.6, life: 0.3, axis: 'x', thickness: 0.2 });
+      fx.ring(m, { color, endRadius: 1.6, life: 0.3, axis: 'x', thickness: 0.2 });
       g.audio?.play('chargeFull');
       g.player.shake(0.12);
     }

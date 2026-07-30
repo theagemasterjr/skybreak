@@ -124,9 +124,16 @@ export class Projectiles {
           player.applyKnockback(_v2.copy(p.vel).normalize().multiplyScalar(p.knockback * 0.4).setY(2));
           impacted = true;
         }
+      } else if (p.owner === 'remote') {
+        // cosmetic replica of a rival's shot: damage already happened in their
+        // simulation (and arrives as a hit event) — but it must still DETONATE
+        // here when it reaches me, or their attacks look like they vanish
+        _v1.copy(player.position); _v1.y += 0.9;
+        const hitR = p.radius + 0.62;
+        if (player.alive && distSqPointToSegment(_v1.x, _v1.y, _v1.z, _prevPos.x, _prevPos.y, _prevPos.z, p.pos.x, p.pos.y, p.pos.z) < hitR * hitR) {
+          impacted = true;
+        }
       }
-      // 'remote' projectiles are cosmetic replicas of the duel opponent's
-      // shots — their damage already happens in the opponent's simulation
 
       // ground impact (swept from prev height)
       if (!impacted) {
@@ -156,6 +163,7 @@ export class Projectiles {
     this.effects.glow(p.pos, { color: p.color, size: p.aoe > 0 ? p.aoe : 1.2, life: 0.28, grow: 3 });
     if (p.aoe > 0) {
       this.effects.ring(p.pos, { color: p.color, endRadius: p.aoe, life: 0.4 });
+      this.effects.impactBurst(p.pos, { color: p.color, size: 1.4 + p.aoe * 0.35 });
       const dmg = p.aoeDamage ?? p.damage;
       if (p.owner === 'player') {
         for (const e of enemies) {

@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { clamp } from './utils.js';
+import { SLOT_ICONS } from './gambler.js';
+
+const SLOT_GLYPHS = Object.keys(SLOT_ICONS);
 
 // ---------------------------------------------------------------------------
 // HUD: in-combat overlay. Health, dash pips, ability slots with cooldown
@@ -42,6 +45,15 @@ export class HUD {
       </div>
       <div id="abilities"></div>
       <div id="charge-wrap"><div id="charge-fill"></div><span id="charge-label">CHARGING</span></div>
+      <div id="slot-machine">
+        <div class="sm-reels">
+          <div class="sm-reel"><span></span></div>
+          <div class="sm-reel"><span></span></div>
+          <div class="sm-reel"><span></span></div>
+        </div>
+        <div id="sm-timer"><div id="sm-timer-fill"></div></div>
+        <div id="sm-result"></div>
+      </div>
       <div id="dmg-numbers"></div>
     `;
     root.appendChild(this.el);
@@ -67,6 +79,13 @@ export class HUD {
     this.dmgLayer = this.el.querySelector('#dmg-numbers');
     this.spectateBanner = this.el.querySelector('#spectate-banner');
     this.spectateName = this.el.querySelector('#spectate-name');
+
+    this.slotMachineEl = this.el.querySelector('#slot-machine');
+    this.smReels = [...this.el.querySelectorAll('.sm-reel span')];
+    this.smResult = this.el.querySelector('#sm-result');
+    this.smTimer = this.el.querySelector('#sm-timer');
+    this.smTimerFill = this.el.querySelector('#sm-timer-fill');
+    this._spin = null;        // live reel animation state
 
     this.slots = {};          // slot -> {el, cd, keyEl}
     this.pips = [];
@@ -106,6 +125,73 @@ export class HUD {
     }
     const accent = '#' + classDef.color.toString(16).padStart(6, '0');
     this.el.style.setProperty('--class-accent', accent);
+
+    // the Gambler's slot machine
+    this.slotMachineEl.classList.toggle('active', !!classDef.slotMachine);
+    this.slotMachineEl.classList.remove('jackpot', 'bad');
+    this.smResult.textContent = '';
+    this._spin = null;
+    for (const r of this.smReels) { r.textContent = '❔'; r.style.removeProperty('color'); }
+  }
+
+  // Gambler: animate a spin. res = {reels: [iconId x3], kind, good, label}.
+  // Reels cycle wildly, then lock left-to-right; the last lock (0.85s, matched
+  // by the class's effect delay) reveals the result.
+  spinSlots(res) {
+    this._spin = { res, t: 0, cycle: 0, locked: [false, false, false], resultShown: false, doneT: 0 };
+    this.slotMachineEl.classList.remove('jackpot', 'bad', 'land');
+    this.smResult.textContent = '';
+    this.smResult.className = '';
+  }
+
+  _updateSlotMachine(dt) {
+    // duration bar: how long the landed roll's effect keeps running
+    const st = this.game.combat?.state;
+    if (st && this.slotMachineEl.classList.contains('active')) {
+      const frac = st.rollTotal > 0 ? Math.max(0, st.rollT || 0) / st.rollTotal : 0;
+      this.smTimerFill.style.width = (frac * 100) + '%';
+      this.smTimer.classList.toggle('on', frac > 0);
+    }
+    const S = this._spin;
+    if (!S) return;
+    S.t += dt;
+    const LOCK_AT = [0.35, 0.58, 0.85];
+    // unlocked reels flicker through random faces
+    S.cycle -= dt;
+    if (S.cycle <= 0) {
+      S.cycle = 0.055;
+      for (let i = 0; i < 3; i++) {
+        if (S.locked[i]) continue;
+        const id = SLOT_GLYPHS[(Math.random() * SLOT_GLYPHS.length) | 0];
+        this.smReels[i].textContent = SLOT_ICONS[id].glyph;
+        this.smReels[i].style.color = SLOT_ICONS[id].color;
+      }
+    }
+    for (let i = 0; i < 3; i++) {
+      if (!S.locked[i] && S.t >= LOCK_AT[i]) {
+        S.locked[i] = true;
+        const id = S.res.reels[i];
+        this.smReels[i].textContent = SLOT_ICONS[id].glyph;
+        this.smReels[i].style.color = SLOT_ICONS[id].color;
+        this.smReels[i].parentElement.classList.remove('lock');
+        void this.smReels[i].parentElement.offsetWidth;
+        this.smReels[i].parentElement.classList.add('lock');
+      }
+    }
+    if (!S.resultShown && S.t >= LOCK_AT[2]) {
+      S.resultShown = true;
+      this.smResult.textContent = S.res.label;
+      this.smResult.className = S.res.kind === 'jackpot' ? 'jackpot' : S.res.good ? 'good' : 'bad';
+      this.slotMachineEl.classList.add(S.res.kind === 'jackpot' ? 'jackpot' : S.res.good ? 'land' : 'bad');
+    }
+    if (S.resultShown) {
+      S.doneT += dt;
+      if (S.doneT > 2.4) {
+        this.slotMachineEl.classList.remove('jackpot', 'bad', 'land');
+        this.smResult.textContent = '';
+        this._spin = null;
+      }
+    }
   }
 
   flashAbility(slot) {
@@ -199,6 +285,8 @@ export class HUD {
     if (!this.visible) return;
     const g = this.game;
     const p = g.player;
+
+    this._updateSlotMachine(dt);
 
     // health
     const frac = clamp(p.health / p.maxHealth, 0, 1);
