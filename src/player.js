@@ -73,6 +73,7 @@ export class Player {
     this.onDeath = null;
 
     this.freeze = false;      // menus pause control
+    this.suppressCamera = false; // spectate cam owns the camera while dead
   }
 
   setClassStats({ maxHealth, walkSpeed, maxDashes, dashSpeed, gravityScale }) {
@@ -137,8 +138,10 @@ export class Player {
     this.shieldT = duration;
   }
 
-  takeDamage(amount, sourcePos = null) {
-    if (!this.alive || this.invulnTimer > 0) return false;
+  takeDamage(amount, sourcePos = null, opts = {}) {
+    // pierceInvuln: network PvP hits are attacker-confirmed discrete events —
+    // the local i-frame window must never eat them (it exists for PvE swarms)
+    if (!this.alive || (this.invulnTimer > 0 && !opts.pierceInvuln)) return false;
     amount *= 1 - (this.damageReduction || 0);
     // overshield absorbs first
     if (this.shield > 0) {
@@ -167,6 +170,13 @@ export class Player {
     this.health = Math.min(this.maxHealth, this.health + amount);
   }
 
+  // poison DoT (Void Stalker missiles): refreshes rather than stacks
+  applyPoison(t, dps) {
+    if (!this.alive) return;
+    this.poisonT = Math.max(this.poisonT || 0, t);
+    this.poisonDps = Math.max(this.poisonDps || 0, dps);
+  }
+
   shake(amount) {
     this.trauma = Math.min(1, this.trauma + amount);
   }
@@ -178,6 +188,8 @@ export class Player {
     this.shield = 0;
     this.shieldT = 0;
     this.alive = true;
+    this.poisonT = 0;
+    this.poisonDps = 0;
     this.dashCharges = this.maxDashes;
     this.jumpsLeft = 2;
     this.stallTimer = 0;
@@ -193,7 +205,7 @@ export class Player {
       if (this.shieldT <= 0) this.shield = 0;
     }
     if (this.freeze || !this.alive) {
-      this._updateCamera(dt, time);
+      if (!this.suppressCamera) this._updateCamera(dt, time);
       return;
     }
 
@@ -208,6 +220,23 @@ export class Player {
     this.coyote = this.grounded ? 0.12 : Math.max(0, this.coyote - dt);
     this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
     if (this.input.pressed('jump')) this.jumpBuffer = 0.12;
+    if (this.poisonT > 0) {
+      this.poisonT -= dt;
+      this.poisonTick = (this.poisonTick ?? 0) - dt;
+      if (this.poisonTick <= 0) {
+        this.poisonTick = 0.5;
+        const d = this.poisonDps * 0.5;
+        this.health -= d;
+        this.trauma = Math.min(1, this.trauma + 0.08);
+        if (this.onDamaged) this.onDamaged(d, null);
+        if (this.health <= 0) {
+          this.health = 0;
+          this.alive = false;
+          if (this.onDeath) this.onDeath();
+        }
+      }
+      if (this.poisonT <= 0) this.poisonDps = 0;
+    }
     if (this.stallTimer > 0) this.stallTimer -= dt;
     if (this.slowFallTimer > 0) this.slowFallTimer -= dt;
     if (this.rootTimer > 0) this.rootTimer -= dt;
@@ -343,23 +372,49 @@ export class Player {
     // requires vel.y <= 0.01), so nothing ever stopped upward motion from
     // underneath an island — you could fly up through the rock and pop out
     // the top. Islands have a real underside (see World.islandBottomAt);
-    // treat the whole [bottom, top] span as solid and push out of it.
+    // treat the whole [bottom, top] span as solid and push out of it based
+    // on which way the player entered it:
+    //   - from above: embedded-recovery case (fast fall past the swept
+    //     ground check above) — snap onto the top surface.
+    //   - from below: rising into the underside — bonk, don't tunnel through.
+    //   - laterally (e.g. falling past the side of the island): push the
+    //     player back out horizontally past the island's edge, keeping
+    //     their vertical motion intact, instead of teleporting them.
     for (const isl of this.world.islands) {
       const top = World.islandHeightAt(isl, this.position.x, this.position.z);
       if (top === null) continue;
       const bottom = World.islandBottomAt(isl, this.position.x, this.position.z);
       if (bottom === null || this.position.y >= top || this.position.y <= bottom) continue;
-      if (prevY <= bottom + 0.05 || this.vel.y > 0) {
-        // rising into the underside from below: bonk, don't tunnel through
-        this.position.y = bottom;
-        if (this.vel.y > 0) this.vel.y = 0;
-      } else {
-        // ended up embedded some other way (e.g. fast fall past the swept
-        // check) — recover onto the top surface instead of falling through
+      // resolve through the NEAREST surface, so contact is a smooth slide
+      // (classifying by entry direction caused sudden sideways shoves when
+      // gliding along the underside)
+      const dx = this.position.x - isl.x, dz = this.position.z - isl.z;
+      const d = Math.hypot(dx, dz);
+      const theta = Math.atan2(dz, dx);
+      const edge = World.edgeRadius(isl, theta);
+      const dBot = this.position.y - bottom;   // depth from the underside
+      const dSide = edge - d;                  // depth from the side wall
+      if (prevY >= top - 0.05) {
+        // genuinely came from above: embedded-recovery, land on top
         this.position.y = top;
         this.vel.y = 0;
         this.grounded = true;
         this.jumpsLeft = 2;
+      } else if (dBot <= dSide) {
+        // nearest exit is the underside: slide along the belly (the bottom
+        // surface is continuous, so following it frame-to-frame is smooth)
+        this.position.y = bottom;
+        if (this.vel.y > 0) this.vel.y = 0;
+      } else {
+        // nearest exit is the side wall: push out only as far as we sank in
+        const targetD = edge + 0.05;
+        const nx = d > 0.0001 ? dx / d : 1;
+        const nz = d > 0.0001 ? dz / d : 0;
+        this.position.x = isl.x + nx * targetD;
+        this.position.z = isl.z + nz * targetD;
+        // cancel velocity into the island
+        const into = this.vel.x * nx + this.vel.z * nz;
+        if (into < 0) { this.vel.x -= into * nx; this.vel.z -= into * nz; }
       }
     }
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DUELIST_BUILDERS } from './duelistModels.js';
+import { buildChampionThirdPerson } from './championAssets.js';
 import { damp, clamp } from './utils.js';
 
 // ---------------------------------------------------------------------------
@@ -18,10 +19,14 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 
 export class DuelOpponent {
-  constructor(game, duel, classId) {
+  // owner: any manager exposing canDealDamage() and sendHitFor(avatar, dmg,
+  // knockback, freeze, poison, slow) — the 1v1 Duel or the FFA room both do.
+  constructor(game, owner, classId, opts = {}) {
     this.game = game;
-    this.duel = duel;
+    this.owner = owner;
     this.classId = classId;
+    this.netId = opts.netId ?? -1;    // roster player id in multiplayer rooms
+    this.displayName = opts.name || null;
 
     // ---- enemy-compatible surface ----
     this.type = 'duelist';
@@ -62,8 +67,10 @@ export class DuelOpponent {
     this.yaw = 0;
     this.visYaw = 0;
 
-    // ---- model ----
-    const built = (DUELIST_BUILDERS[classId] || DUELIST_BUILDERS.mage)();
+    // ---- model: GLB champion if preloaded, old procedural rig otherwise ----
+    const built = buildChampionThirdPerson(classId, this.height)
+      ?? (DUELIST_BUILDERS[classId] || DUELIST_BUILDERS.mage)();
+    this.usesGlb = !!built.usesGlb;
     this.model = built.group;
     this.parts = built.parts;
     this.materials = built.materials;
@@ -126,7 +133,7 @@ export class DuelOpponent {
   }
 
   takeDamage(dmg, { knockback = null, freeze = 0, poison = null, slow = 0 } = {}) {
-    if (!this.alive || !this.duel.canDealDamage()) return;
+    if (!this.alive || !this.owner.canDealDamage()) return;
     this.flashT = 0.14;
     // optimistic local mirror; their next snapshot corrects it
     this.hp = Math.max(0, this.hp - dmg);
@@ -135,7 +142,7 @@ export class DuelOpponent {
       this.game.effects.impactBurst(this.center(_v1).clone(), { size: 2 + Math.min(2.5, dmg * 0.03), color: 0xffb0a0 });
       this.game.hitstop(0.045);
     }
-    this.duel.sendHit(dmg, knockback, freeze, poison, slow);
+    this.owner.sendHitFor(this, dmg, knockback, freeze, poison, slow);
   }
 
   // called by the duel manager when their client reports death
@@ -333,8 +340,11 @@ export class DuelOpponent {
     this.game.scene.remove(this.barGroup);
     this.game.scene.remove(this.marker);
     this.model.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material && o.material !== this.outlineMat) o.material.dispose();
+      // GLB geometry is shared with the preloaded template — never dispose it
+      if (o.geometry && !this.usesGlb) o.geometry.dispose();
+      if (o.material && o.material !== this.outlineMat) {
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
+      }
     });
     this.outlineMat.dispose();
     this.marker.geometry.dispose();

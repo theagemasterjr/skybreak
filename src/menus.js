@@ -30,6 +30,9 @@ export class Menus {
     this._buildMatch();
     this._buildDuelEnd();
     this._buildDuelPause();
+    this._buildMp();
+    this._buildLobby();
+    this._buildMpPause();
     this.screens = {
       main: this.el.querySelector('#menu-main'),
       select: this.el.querySelector('#menu-select'),
@@ -39,6 +42,9 @@ export class Menus {
       match: this.el.querySelector('#menu-match'),
       duelend: this.el.querySelector('#menu-duelend'),
       duelpause: this.el.querySelector('#menu-duelpause'),
+      mp: this.el.querySelector('#menu-mp'),
+      lobby: this.el.querySelector('#menu-lobby'),
+      mppause: this.el.querySelector('#menu-mppause'),
     };
     this._codexFrom = 'main';   // screen to return to when the codex closes
 
@@ -55,7 +61,7 @@ export class Menus {
         <h1 class="title">SKYBREAK</h1>
         <p class="subtitle">Endless war above the clouds</p>
         <button class="btn primary" id="btn-play">SINGLEPLAYER</button>
-        <button class="btn duel" id="btn-duel">DUEL <span class="btn-tag">1v1 ONLINE</span></button>
+        <button class="btn duel" id="btn-multiplayer">MULTIPLAYER <span class="btn-tag">ONLINE</span></button>
         <button class="btn" id="btn-tutorial">TUTORIAL</button>
         <button class="btn" id="btn-codex-main">CODEX</button>
         <div class="menu-stats" id="main-stats"></div>
@@ -68,7 +74,10 @@ export class Menus {
     `;
     this.el.appendChild(s);
     s.querySelector('#btn-play').addEventListener('click', () => this.game.showSelect());
-    s.querySelector('#btn-duel').addEventListener('click', () => this.game.duel.startMatchmaking());
+    s.querySelector('#btn-multiplayer').addEventListener('click', () => {
+      this.show('mp');
+      this.game.ffa.refreshRooms();
+    });
     s.querySelector('#btn-tutorial').addEventListener('click', () => this.game.startTutorial());
     s.querySelector('#btn-codex-main').addEventListener('click', () => this.openCodex('main'));
   }
@@ -128,6 +137,7 @@ export class Menus {
   }
 
   _pickClass(id) {
+    if (this.game.ffa.active && this.game.ffa.phase === 'lobby') { this.game.ffa.pickClass(id); return; }
     if (this.game.duel.phase === 'select') this.game.duel.pickClass(id);
     else this.game.startRun(id);
   }
@@ -194,6 +204,163 @@ export class Menus {
       this.game.input.requestLock();
     });
     s.querySelector('#btn-duel-forfeit').addEventListener('click', () => this.game.duel.leave());
+  }
+
+  // ---------- multiplayer (FFA) screens ----------
+  _buildMp() {
+    const s = document.createElement('div');
+    s.id = 'menu-mp';
+    s.className = 'screen';
+    s.innerHTML = `
+      <div class="scrim"></div>
+      <div class="menu-content wide">
+        <h2 class="mp-title">MULTIPLAYER</h2>
+        <button class="btn duel" id="btn-mp-duel">DUEL — QUICK MATCH <span class="btn-tag">1v1 · BEST OF 3</span></button>
+        <div class="mp-ffa">
+          <p class="mp-section-label">FREE FOR ALL <span>2-4 players · last one flying wins</span></p>
+          <div id="mp-rooms"></div>
+          <p id="mp-status"></p>
+          <div class="mp-create-row">
+            <input type="text" id="mp-room-name" maxlength="20" placeholder="NAME YOUR ARENA">
+            <button class="btn" id="btn-mp-create">CREATE</button>
+          </div>
+          <div class="mp-actions">
+            <button class="btn" id="btn-mp-refresh">REFRESH</button>
+            <button class="btn" id="btn-mp-back">BACK</button>
+          </div>
+        </div>
+      </div>
+    `;
+    this.el.appendChild(s);
+    s.querySelector('#btn-mp-duel').addEventListener('click', () => this.game.duel.startMatchmaking());
+    s.querySelector('#btn-mp-refresh').addEventListener('click', () => this.game.ffa.refreshRooms());
+    s.querySelector('#btn-mp-back').addEventListener('click', () => {
+      this.game.ffa.stopBrowsing();
+      this.show('main');
+    });
+    const input = s.querySelector('#mp-room-name');
+    const doCreate = () => this.game.ffa.createRoom(input.value.trim() || 'SKY ARENA');
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.code === 'Enter') doCreate();
+    });
+    s.querySelector('#btn-mp-create').addEventListener('click', doCreate);
+  }
+
+  setRoomList(rooms) {
+    const el = this.el.querySelector('#mp-rooms');
+    if (rooms === null) {
+      el.innerHTML = '<p class="mp-rooms-msg">SCANNING THE SKIES…</p>';
+      return;
+    }
+    if (rooms.length === 0) {
+      el.innerHTML = '<p class="mp-rooms-msg">NO OPEN ARENAS — FORGE ONE</p>';
+      return;
+    }
+    el.innerHTML = rooms.map((r) => {
+      const full = r.count >= r.max;
+      return `
+        <div class="mp-room-row">
+          <span class="mp-room-name">${r.name}</span>
+          <span class="mp-room-count">${r.count}/${r.max} FIGHTERS</span>
+          ${r.inRound ? '<span class="mp-room-tag">IN ROUND</span>' : ''}
+          <button class="btn mp-room-join" data-slot="${r.slot}"${full ? ' disabled' : ''}>JOIN</button>
+        </div>
+      `;
+    }).join('');
+    el.querySelectorAll('.mp-room-join').forEach((btn) => {
+      btn.addEventListener('click', () => this.game.ffa.joinRoom(Number(btn.dataset.slot)));
+    });
+  }
+
+  setMpStatus(text) {
+    this.el.querySelector('#mp-status').textContent = text || '';
+  }
+
+  refreshMpScreen() {
+    this.game.ffa.refreshRooms();
+  }
+
+  _buildLobby() {
+    const s = document.createElement('div');
+    s.id = 'menu-lobby';
+    s.className = 'screen';
+    s.innerHTML = `
+      <div class="scrim"></div>
+      <div class="menu-content">
+        <h2 id="lobby-title" class="lobby-title">ARENA</h2>
+        <p class="lobby-sub">FREE FOR ALL — first to fall spectates</p>
+        <div id="lobby-players" class="lobby-players"></div>
+        <p id="lobby-note" class="lobby-note"></p>
+        <button class="btn" id="btn-lobby-class">CHOOSE CLASS</button>
+        <button class="btn primary" id="btn-lobby-start">START ROUND</button>
+        <button class="btn" id="btn-lobby-leave">LEAVE ROOM</button>
+      </div>
+    `;
+    this.el.appendChild(s);
+    s.querySelector('#btn-lobby-class').addEventListener('click', () => {
+      this.show('select');
+      this.el.querySelector('#duel-select-note').textContent = 'FREE FOR ALL — PICK YOUR FIGHTER';
+    });
+    s.querySelector('#btn-lobby-start').addEventListener('click', () => this.game.ffa.startRound());
+    s.querySelector('#btn-lobby-leave').addEventListener('click', () => this.game.ffa.leaveRoom());
+  }
+
+  showLobby() {
+    this.show('lobby');
+  }
+
+  renderLobby(state) {
+    if (!state) return;
+    this.el.querySelector('#lobby-title').textContent = state.roomName;
+    const list = this.el.querySelector('#lobby-players');
+    list.innerHTML = state.players.map((p) => {
+      const clsName = p.cls ? (CLASSES[p.cls]?.name || p.cls) : 'PICKING…';
+      const tags = (p.isHost ? '<span class="lobby-tag host">HOST</span>' : '')
+        + (p.me ? '<span class="lobby-tag you">YOU</span>' : '');
+      return `
+        <div class="lobby-row${p.me ? ' me' : ''}">
+          <span class="lobby-name">${p.name}</span>
+          <span class="lobby-class">${clsName}</span>
+          <span class="lobby-wins">★ ${p.wins}</span>
+          ${tags}
+        </div>
+      `;
+    }).join('');
+
+    const note = this.el.querySelector('#lobby-note');
+    if (state.phase !== 'lobby') {
+      note.textContent = "ROUND IN PROGRESS — YOU'LL FLY NEXT ROUND";
+    } else if (state.players.length < state.minPlayers) {
+      note.textContent = 'WAITING FOR FIGHTERS (2+ TO START)';
+    } else {
+      note.textContent = '';
+    }
+
+    const startBtn = this.el.querySelector('#btn-lobby-start');
+    startBtn.style.display = state.isHost ? '' : 'none';
+    startBtn.disabled = state.players.length < state.minPlayers;
+  }
+
+  _buildMpPause() {
+    const s = document.createElement('div');
+    s.id = 'menu-mppause';
+    s.className = 'screen';
+    s.innerHTML = `
+      <div class="scrim light"></div>
+      <div class="menu-content">
+        <h2 class="pause-title">STANDING DOWN</h2>
+        <p class="duelpause-warn">the round continues without you!</p>
+        <button class="btn primary" id="btn-mp-resume">BACK TO THE FIGHT</button>
+        <button class="btn" id="btn-mp-leave">LEAVE ROOM</button>
+      </div>
+    `;
+    this.el.appendChild(s);
+    s.querySelector('#btn-mp-resume').addEventListener('click', () => {
+      this.hideAll();
+      this.game.input.requestLock();
+    });
+    s.querySelector('#btn-mp-leave').addEventListener('click', () => this.game.ffa.leaveRoom());
   }
 
   setMatchStatus(text) {
@@ -447,6 +614,9 @@ export class Menus {
     } else if (active('pause') && e.code === 'Enter') {
       g.resume();
     } else if (active('duelpause') && e.code === 'Enter') {
+      this.hideAll();
+      g.input.requestLock();
+    } else if (active('mppause') && e.code === 'Enter') {
       this.hideAll();
       g.input.requestLock();
     }

@@ -12,6 +12,7 @@ import { Menus } from './menus.js';
 import { Stats } from './stats.js';
 import { GameAudio } from './audio.js';
 import { Duel } from './duel.js';
+import { Ffa } from './ffa.js';
 import { Tutorial } from './tutorial.js';
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ export class Game {
     this.simTime = 0;
     this.hitstopT = 0;        // comic-book impact freeze
     this.state = 'menu';      // menu | select | playing | paused | dead
-    this.mode = 'solo';       // solo | duel
+    this.mode = 'solo';       // solo | duel | ffa
     this.currentClassId = 'mage';
     this.runKills = 0;
     this.menuCamAngle = 2.2;
@@ -85,13 +86,15 @@ export class Game {
     this.stats = new Stats();
     this.hud = new HUD(this, uiRoot);
     this.duel = new Duel(this);
+    this.ffa = new Ffa(this);
     this.menus = new Menus(this, uiRoot);
     this.waves = new Waves(this);
     this.tutorial = new Tutorial(this, uiRoot);
 
-    // duel mode: successful casts replicate to the opponent as an attack anim
+    // online modes: successful casts replicate to rivals as an attack anim
     this.onPlayerCast = (slot, power) => {
       if (this.mode === 'duel') this.duel.notifyCast(slot, power);
+      if (this.mode === 'ffa') this.ffa.notifyCast(slot, power);
     };
 
     // combat feedback -> HUD
@@ -127,6 +130,7 @@ export class Game {
       const locked = document.pointerLockElement === canvas;
       if (!locked && this.state === 'playing') {
         if (this.mode === 'duel') this.menus.show('duelpause');
+        else if (this.mode === 'ffa') this.menus.show('mppause');
         else this.pause();
       } else if (!locked && this.state === 'tutorial') {
         this.toMenu();
@@ -235,6 +239,25 @@ export class Game {
     this.audio?.play('runStart');
   }
 
+  // free-for-all round setup: same as a duel round, different referee
+  startFfa(classId) {
+    this.currentClassId = classId;
+    this._clearBattlefield();
+    this.setClass(classId);
+    this.player.respawn();
+    this.player.freeze = false;
+    this.input.enabled = true;
+    this.runKills = 0;
+    this.hud.bindClass(this.combat.classDef, this.player.maxDashes);
+    this.hud.show();
+    this.menus.hideAll();
+    this.state = 'playing';
+    this.mode = 'ffa';
+    this.waves.reset();
+    this.input.requestLock();
+    this.audio?.play('runStart');
+  }
+
   pause() {
     if (this.state !== 'playing') return;
     this.state = 'paused';
@@ -258,6 +281,10 @@ export class Game {
       // duels resolve deaths per-round, not with the solo death screen
       this.audio?.play('playerDeath');
       this.duel.localDied();
+      return;
+    }
+    if (this.mode === 'ffa') {
+      this.ffa.localDied();   // handles audio + spectate handoff itself
       return;
     }
     this.state = 'dead';
@@ -479,6 +506,8 @@ export class Game {
 
   // ---------- main tick ----------
   tick(dt) {
+    // room networking stays alive through every state (lobby sits over menus)
+    this.ffa.tickAlways(dt);
     // hitstop: the world freezes for a beat on heavy impacts
     if (this.hitstopT > 0) {
       this.hitstopT -= dt;
@@ -520,6 +549,7 @@ export class Game {
     }
 
     if (this.mode === 'duel') this.duel.update(dt);
+    if (this.mode === 'ffa') this.ffa.update(dt);
 
     this.player.update(dt, t);
     if (this.combat) this.combat.update(dt, t);
@@ -546,6 +576,8 @@ export class Game {
     if (this.waves) this.waves.update(dt, t);
     if (this.hud) this.hud.update(dt, t);
     if (this.state === 'tutorial') this.tutorial.update(dt, t);
+    // spectate camera must win over the dead player's own camera
+    if (this.mode === 'ffa') this.ffa.lateUpdate(dt);
 
     this.input.endFrame();
   }

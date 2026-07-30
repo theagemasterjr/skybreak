@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SKYBREAK free-for-all test harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; }
+  body { display: flex; }
+  iframe { flex: 1; height: 100%; border: 0; border-right: 2px solid #333; }
+</style>
+</head>
+<body>
+<!-- three full game clients side by side, pointed at the local test broker:
+     npx peerjs --port 9788   (then serve the repo root and open this file) -->
+<iframe id="p1" src="/?peerhost=127.0.0.1&peerport=9788&peersecure=0"></iframe>
+<iframe id="p2" src="/?peerhost=127.0.0.1&peerport=9788&peersecure=0"></iframe>
+<iframe id="p3" src="/?peerhost=127.0.0.1&peerport=9788&peersecure=0"></iframe>
+<script>
+  // convenience handles for driving the clients from the console
+  window.g1 = () => document.getElementById('p1').contentWindow.SKYBREAK;
+  window.g2 = () => document.getElementById('p2').contentWindow.SKYBREAK;
+  window.g3 = () => document.getElementById('p3').contentWindow.SKYBREAK;
+  window.gs = () => [g1(), g2(), g3()];
+
+  // scripted smoke test, driven manually from the console:
+  //   await ffaFlow()          — create room on p1, join on p2+p3, pick classes, start
+  //   killP2()                 — force p2's player to die (spectate chain check)
+  //   dropHost()               — nuke p1's iframe mid-round (host migration check)
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  window.ffaFlow = async () => {
+    g1().game.ffa.createRoom('TEST ARENA');
+    await sleep(2500);
+    console.log('[flow] p1 room state:', g1().game.ffa.phase, 'slot', g1().game.ffa.net?.slot);
+    const slot = g1().game.ffa.net.slot;
+    g2().game.ffa.joinRoom(slot);
+    g3().game.ffa.joinRoom(slot);
+    await sleep(3000);
+    console.log('[flow] rosters:', gs().map((g) => g.game.ffa.net?.roster.length));
+    g1().game.ffa.pickClass('warden');
+    g2().game.ffa.pickClass('reaver');
+    g3().game.ffa.pickClass('mage');
+    await sleep(800);
+    g1().game.ffa.startRound();
+    await sleep(500);
+    console.log('[flow] phases:', gs().map((g) => g.game.ffa.phase));
+  };
+
+  window.killP2 = () => {
+    const p = g2().game.player;
+    p.health = 0; p.alive = false; p.onDeath && p.onDeath();
+  };
+
+  window.dropHost = () => {
+    document.getElementById('p1').src = 'about:blank';
+    console.log('[flow] host dropped — watch p2/p3 migrate');
+  };
+</script>
+</body>
+</html>

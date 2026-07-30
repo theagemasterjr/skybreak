@@ -75,7 +75,7 @@ export class Duel {
   cancelMatchmaking() {
     this._teardownNet();
     this.phase = 'idle';
-    this.game.menus.show('main');
+    this.game.menus.show('mp');   // duel lives inside the multiplayer menu now
   }
 
   _toSelect() {
@@ -292,6 +292,11 @@ export class Duel {
     }
   }
 
+  // DuelOpponent hook (shared with the FFA mode, which routes per-target)
+  sendHitFor(avatar, dmg, knockback, freeze, poison, slow) {
+    this.sendHit(dmg, knockback, freeze, poison, slow);
+  }
+
   // my attack landed on their avatar in my world -> tell them
   sendHit(dmg, knockback, freeze, poison, slow) {
     this.net.send({
@@ -310,7 +315,7 @@ export class Duel {
     const p = g.player;
     if (!p.alive) return;
     const src = this.avatar ? this.avatar.position : null;
-    p.takeDamage(m.d, src);
+    p.takeDamage(m.d, src, { pierceInvuln: true });
     if (m.k) p.applyKnockback(new THREE.Vector3(m.k[0], m.k[1], m.k[2]));
     if (m.f > 0) p.root(m.f);
     if (m.sl > 0) this._slowT = Math.max(this._slowT, m.sl);

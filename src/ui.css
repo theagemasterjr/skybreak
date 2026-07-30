@@ -131,6 +131,23 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   100% { opacity: 0; }
 }
 
+/* ---- FFA spectate banner ---- */
+#spectate-banner {
+  position: absolute; left: 50%; top: 84px; transform: translateX(-50%);
+  text-align: center; opacity: 0; pointer-events: none;
+  transition: opacity 0.2s;
+}
+#spectate-banner.active { opacity: 1; }
+#spectate-line {
+  display: block; font-size: 1.05rem; font-weight: 800; letter-spacing: 0.26em; text-indent: 0.26em;
+  color: var(--gold); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+}
+#spectate-name { color: var(--text); }
+.spectate-sub {
+  display: block; margin-top: 4px; font-size: 0.66rem; font-weight: 600; letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+
 /* ---- health + dashes (bottom left) ---- */
 #bottom-left { position: absolute; left: 30px; bottom: 26px; }
 #hp-wrap { display: flex; align-items: center; gap: 12px; }
@@ -164,30 +181,6 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
 }
 #hud.low-hp #hp-num { color: var(--blood); }
-
-/* ---- velocity meter (Storm Reaver) ---- */
-#speed-wrap {
-  display: none; align-items: center; gap: 10px; margin-bottom: 8px;
-}
-#speed-wrap.active { display: flex; }
-#speed-bar {
-  width: 230px; height: 11px; position: relative;
-  background: var(--ink-80); clip-path: var(--chamfer); overflow: hidden;
-}
-#speed-fill {
-  position: absolute; inset: 2px auto 2px 2px; width: 0;
-  background: linear-gradient(90deg, #2f6e88, #55ddff 70%, #ccf6ff);
-  transition: width 0.06s linear;
-}
-#speed-wrap.hot #speed-fill {
-  background: linear-gradient(90deg, #55ddff, #ccf6ff 60%, #ffffff);
-  box-shadow: 0 0 12px rgba(85, 221, 255, 0.8);
-}
-#speed-mult {
-  font-size: 0.95rem; font-weight: 800; min-width: 44px;
-  color: #9adcf2; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
-}
-#speed-wrap.hot #speed-mult { color: #ffffff; text-shadow: 0 0 10px rgba(85, 221, 255, 0.9); }
 
 #dash-pips { display: flex; gap: 9px; margin-top: 10px; margin-left: 2px; }
 .pip {
@@ -591,4 +584,117 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   font-size: 0.9rem; font-weight: 700; letter-spacing: 0.22em; text-indent: 0.22em;
   color: var(--blood);
   animation: match-blink 1.1s ease-in-out infinite;
+}
+
+/* ============================================================ MULTIPLAYER (FFA) === */
+
+.mp-title {
+  font-size: 2.2rem; font-weight: 800; letter-spacing: 0.4em; text-indent: 0.4em;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.8);
+}
+
+.mp-ffa {
+  width: 100%; max-width: 620px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  margin-top: 4px;
+}
+
+.mp-section-label {
+  width: 100%; text-align: left;
+  font-size: 0.82rem; font-weight: 800; letter-spacing: 0.24em; text-indent: 0.24em;
+  color: var(--gold);
+  border-bottom: 1px solid rgba(255, 215, 106, 0.3); padding-bottom: 8px;
+}
+.mp-section-label span {
+  display: block; margin-top: 4px; font-size: 0.66rem; font-weight: 600;
+  letter-spacing: 0.1em; text-indent: 0; color: var(--text-dim); text-transform: none;
+}
+
+#mp-rooms {
+  width: 100%; display: flex; flex-direction: column; gap: 8px;
+  max-height: 260px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(255, 215, 106, 0.4) transparent;
+}
+.mp-rooms-msg {
+  padding: 20px 0; text-align: center;
+  font-size: 0.82rem; font-weight: 700; letter-spacing: 0.18em; color: var(--text-dim);
+}
+.mp-room-row {
+  display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+  background: var(--ink-55); clip-path: var(--chamfer);
+  border-left: 2px solid var(--class-accent);
+}
+.mp-room-name {
+  flex: 1; text-align: left;
+  font-size: 0.85rem; font-weight: 700; letter-spacing: 0.1em; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mp-room-count {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; color: var(--text-dim);
+}
+.mp-room-tag {
+  padding: 2px 8px; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.14em;
+  color: var(--gold); background: rgba(255, 215, 106, 0.16);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}
+.mp-room-join {
+  padding: 7px 20px; font-size: 0.7rem;
+}
+.mp-room-join:disabled {
+  opacity: 0.35; cursor: default; pointer-events: none;
+}
+
+#mp-status {
+  min-height: 1.1em; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.2em;
+  color: var(--ember);
+}
+
+.mp-create-row { display: flex; gap: 10px; width: 100%; }
+#mp-room-name {
+  flex: 1; padding: 12px 16px;
+  background: transparent; border: 1px solid rgba(246, 238, 224, 0.3);
+  clip-path: var(--chamfer);
+  font-size: 0.82rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--text);
+}
+#mp-room-name::placeholder { color: var(--text-dim); text-transform: uppercase; }
+#mp-room-name:focus { outline: none; border-color: var(--gold); }
+
+.mp-actions { display: flex; gap: 10px; }
+
+/* ---- lobby ---- */
+.lobby-title {
+  font-size: 1.9rem; font-weight: 800; letter-spacing: 0.32em; text-indent: 0.32em;
+}
+.lobby-sub {
+  font-size: 0.78rem; letter-spacing: 0.16em; color: var(--text-dim); margin-top: -12px;
+}
+.lobby-players {
+  width: 100%; max-width: 560px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.lobby-row {
+  display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+  background: var(--ink-55); clip-path: var(--chamfer);
+  border-left: 2px solid rgba(246, 238, 224, 0.25);
+}
+.lobby-row.me { border-left-color: var(--gold); background: rgba(255, 215, 106, 0.1); }
+.lobby-name {
+  flex: 1; text-align: left;
+  font-size: 0.85rem; font-weight: 700; letter-spacing: 0.08em; color: var(--text);
+}
+.lobby-class {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; color: var(--text-dim);
+  text-transform: uppercase;
+}
+.lobby-wins { font-size: 0.72rem; font-weight: 700; color: var(--gold); }
+.lobby-tag {
+  padding: 2px 8px; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.14em;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}
+.lobby-tag.host { color: var(--gold); background: rgba(255, 215, 106, 0.16); }
+.lobby-tag.you { color: #9adcf2; background: rgba(85, 221, 255, 0.14); }
+.lobby-note {
+  min-height: 1.1em; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.18em;
+  color: var(--ember);
 }

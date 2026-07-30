@@ -114,7 +114,8 @@ export class Projectiles {
         _v1.copy(player.position); _v1.y += 0.9;
         const hitR = p.radius + 0.62;
         if (player.alive && distSqPointToSegment(_v1.x, _v1.y, _v1.z, _prevPos.x, _prevPos.y, _prevPos.z, p.pos.x, p.pos.y, p.pos.z) < hitR * hitR) {
-          player.takeDamage(p.damage, p.pos);
+          const landed = player.takeDamage(p.damage, p.pos);
+          if (landed && p.poison && player.applyPoison) player.applyPoison(p.poison.t, p.poison.dps);
           player.applyKnockback(_v2.copy(p.vel).normalize().multiplyScalar(p.knockback * 0.4).setY(2));
           impacted = true;
         }

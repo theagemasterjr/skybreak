@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MODEL_BUILDERS } from './enemyModels.js';
+import { buildGlbInstance } from './enemyAssets.js';
 import { clamp, damp } from './utils.js';
 
 // ---------------------------------------------------------------------------
@@ -45,9 +46,9 @@ export const ENEMY_INFO = {
     tip: 'It only shoots during dives. Meet it in the air — it’s fragile.',
   },
   blinker: {
-    name: 'Void Stalker', threat: 'Sneaky',
-    blurb: 'A slim figure wreathed in orbiting shards. Teleports directly behind you and slashes after a short pause.',
-    tip: 'The teleport-in burst of purple sparks is your cue: dash away before the slash lands.',
+    name: 'Void Stalker', threat: 'Toxic',
+    blurb: 'A slim figure wreathed in orbiting shards. Circles at range and lobs volleys of venom missiles that arc through the air and chase you down. Each hit leaves poison ticking on you.',
+    tip: 'The missiles track hard but turn slowly — cut sideways or dash late and they’ll overshoot. Don’t eat several at once; the poison stacks up fast.',
   },
   shielder: {
     name: 'Aegis Construct', threat: 'Priority target',
@@ -117,11 +118,18 @@ export class Enemy {
     this.s = {};                 // per-AI state
     this.attackCd = 1 + Math.random() * 1.5;
 
-    // model
-    const built = MODEL_BUILDERS[type]();
+    // model: preloaded GLB if it's ready, procedural builder otherwise
+    const built = buildGlbInstance(type, def) ?? MODEL_BUILDERS[type]();
     this.model = built.group;
-    this.parts = built.parts;
+    this.parts = built.parts ?? {};
     this.materials = built.materials;
+    if (built.mixer) {
+      this.mixer = built.mixer;
+      this.animIdle = built.idle;
+      this.animMove = built.move;
+      this.inner = built.inner;
+      this.glbScale = built.scale;
+    }
     // stylized fill: dark parts self-illuminate slightly so enemies stay
     // readable when backlit by the sunset
     for (const m of this.materials) {
@@ -372,7 +380,8 @@ export class Enemy {
     this.model.position.copy(this.position);
     const targetYaw = Math.atan2(this.facing.x, this.facing.z);
     this.model.rotation.y = dampAngle(this.model.rotation.y, targetYaw, 10, dt);
-    ANIMATIONS[this.type]?.(this, dt, time);
+    if (this.mixer) this.updateGlbAnim(dt);
+    else ANIMATIONS[this.type]?.(this, dt, time);
 
     // freeze / flash / mark tinting
     for (let i = 0; i < this.materials.length; i++) {
@@ -417,12 +426,35 @@ export class Enemy {
     }
   }
 
+  // GLB models: crossfade idle<->move by how fast the enemy actually moved
+  // this frame (AI writes position directly, so velocity alone can't tell)
+  updateGlbAnim(dt) {
+    const s = this.s;
+    if (!s._lastPos) s._lastPos = this.position.clone();
+    const planar = dt > 0
+      ? Math.hypot(this.position.x - s._lastPos.x, this.position.z - s._lastPos.z) / dt
+      : 0;
+    s._lastPos.copy(this.position);
+    const k = clamp(planar / Math.max(1, this.speed * 0.5), 0, 1);
+    const w = damp(this.animMove.getEffectiveWeight(), k, 8, dt);
+    this.animMove.setEffectiveWeight(w);
+    this.animIdle.setEffectiveWeight(1 - w);
+    this.animMove.timeScale = 0.6 + k * 0.8;
+    // generic telegraphs the baked clips don't cover: bomber swell + a
+    // readable puff-up during any attack windup
+    let squash = 1;
+    if (s.fuse !== undefined) squash = 1 + (0.65 - s.fuse) * 0.9;
+    else if (s.windup > 0 || s.charge > 0 || s.slamT > 0 || s.comboT > 0 || s.volley > 0) squash = 1.12;
+    this.inner.scale.setScalar(damp(this.inner.scale.x, this.glbScale * squash, 14, dt));
+    this.mixer.update(this.frozen > 0 ? 0 : dt);
+  }
+
   // enemy ranged shot
-  shoot(from, dir, { speed = 26, damage = 13, color = 0xe055ff, size = 0.4, homing = 0 } = {}) {
+  shoot(from, dir, { speed = 26, damage = 13, color = 0xe055ff, size = 0.4, homing = 0, poison = null, life = 5 } = {}) {
     this.game.projectiles.spawn({
       pos: from, vel: dir.clone().multiplyScalar(speed),
       owner: 'enemy', damage: damage * this.dmgMul, color, size,
-      homing, gravity: 0, life: 5, knockback: 7,
+      homing, gravity: 0, life, knockback: 7, poison,
     });
     this.game.audio?.play('enemyShot');
   }
@@ -446,8 +478,11 @@ export class Enemy {
     this.game.scene.remove(this.model);
     this.game.scene.remove(this.barGroup);
     this.model.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose();
+      // GLB geometry is shared with the preloaded template — never dispose it
+      if (o.geometry && !this.mixer) o.geometry.dispose();
+      if (o.material) {
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
+      }
     });
     this.barBg.material.dispose();
     this.barFg.material.dispose();
@@ -509,7 +544,9 @@ const BEHAVIORS = {
       s.charge -= dt;
       e.faceToward(target, dt, 8);
       if (s.charge <= 0) {
-        const from = e.parts.orb.getWorldPosition(new THREE.Vector3());
+        const from = e.parts.orb
+          ? e.parts.orb.getWorldPosition(new THREE.Vector3())
+          : e.center(new THREE.Vector3());
         const to = _v1.copy(g.player.position).setY(g.player.position.y + 1.0);
         // lead the player slightly
         to.addScaledVector(g.player.vel, dist / 30);
@@ -583,38 +620,51 @@ const BEHAVIORS = {
     }
   },
 
-  // -- blinker: teleport behind the player, slash, linger, repeat --
+  // -- blinker: "Void Stalker" — strafes at range, volleys poisonous homing missiles --
   blinker(e, dt) {
     const g = e.game;
     const target = e.threat();
+    const dist = e.position.distanceTo(g.player.position);
     const s = e.s;
-    if (s.windup > 0) {
-      s.windup -= dt;
-      e.faceToward(g.player.position, dt, 16);
-      if (s.windup <= 0) {
-        e.meleeStrike(2.8, 14);
-        g.effects.glow(e.center(_v2).clone(), { color: 0xbb55ff, size: 1.5, life: 0.2 });
-        g.audio?.play('swipe');
-        e.attackCd = 3.2 + Math.random() * 1.5;
+    if (s.volley > 0) {
+      s.volley -= dt;
+      e.faceToward(g.player.position, dt, 12);
+      s.shotT -= dt;
+      if (s.shotT <= 0 && s.shots > 0) {
+        s.shots--;
+        s.shotT = 0.28;
+        const from = e.center(new THREE.Vector3());
+        from.y += 0.3;
+        // lob outward with spread; the strong homing curves them back in
+        const dir = _v1.copy(g.player.position).setY(g.player.position.y + 1).sub(from).normalize();
+        dir.x += (Math.random() - 0.5) * 0.8;
+        dir.y += 0.35 + Math.random() * 0.3;
+        dir.z += (Math.random() - 0.5) * 0.8;
+        dir.normalize();
+        e.shoot(from, dir, {
+          speed: 14, damage: 6, color: 0x8fff4a, size: 0.38, homing: 2.4, life: 4,
+          poison: { t: 3, dps: 3 * e.dmgMul },
+        });
+        g.effects.glow(from.clone(), { color: 0x8fff4a, size: 1.1, life: 0.2 });
       }
+      if (s.volley <= 0) e.attackCd = 3.4 + Math.random() * 1.2;
       return;
     }
-    if (e.attackCd <= 0 && e.canSeePlayer()) {
-      // teleport behind the player
-      const behind = _v1.copy(g.player.forwardDir(false)).multiplyScalar(-2.6);
-      const dest = _v2.copy(g.player.position).add(behind);
-      dest.x += (Math.random() - 0.5) * 1.5;
-      dest.z += (Math.random() - 0.5) * 1.5;
-      const ground = g.world.groundHeightBelow(dest.x, dest.z, dest.y + 3, g.simTime, 4);
-      if (ground !== null) dest.y = ground;
-      g.effects.burst(e.center(new THREE.Vector3()), { count: 16, color: 0x7a3fd9, speed: 7, size: 0.26, life: 0.35 });
-      e.position.copy(dest);
-      g.effects.burst(e.center(new THREE.Vector3()), { count: 20, color: 0xbb55ff, speed: 8, size: 0.28, life: 0.4 });
-      g.audio?.play('blink');
-      s.windup = 0.42;
-    } else {
-      e.moveToward(target, e.speed * 0.7, dt, { keepDistance: 6 });
+    if (!e.canSeePlayer()) { e.moveToward(target, e.speed * 0.4, dt); return; }
+    if (e.attackCd <= 0 && dist < 30) {
+      s.volley = 1.0;
+      s.shots = 3;
+      s.shotT = 0.15;
+      g.audio?.play('chargeStart');
+      return;
     }
+    // strafe-orbit at missile range so it never stands still
+    const orbitDir = (s.orbitSign ?? (s.orbitSign = Math.random() < 0.5 ? 1 : -1));
+    _v1.copy(g.player.position).sub(e.position).setY(0).normalize();
+    _v2.crossVectors(_v1, new THREE.Vector3(0, 1, 0)).multiplyScalar(orbitDir);
+    const desired = _v3.copy(g.player.position).addScaledVector(_v1, -12).addScaledVector(_v2, 5);
+    e.moveToward(desired, e.speed, dt);
+    e.faceToward(g.player.position, dt);
   },
 
   // -- shielder: walk toward the fight, shield nearby allies (see Game pre-pass) --

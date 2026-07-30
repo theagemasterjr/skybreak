@@ -11,38 +11,6 @@ import * as THREE from 'three';
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 
-// ---- Storm Reaver momentum system ----
-// A heat bar (0..1) that charges SLOWLY, and only while you're genuinely fast
-// (dashes, lunges, dives). The moment you coast it bleeds out at a steady
-// clip, and on the ground it empties almost instantly. The intended rhythm:
-// build speed, spend the bar on a big hit, get forced low, build again.
-// All reaver damage multiplies by reaverMul(bar): 0.15x empty .. 5x full.
-export function reaverMul(momentum) {
-  return 0.15 + 4.85 * (momentum || 0);
-}
-export function updateMomentum(player, state, dt) {
-  let m = state.momentum || 0;
-  const spd = player.vel.length();
-  // only EARNED speed feeds the bar: dashes, Storm Lunge, Galvanize, Cyclone
-  // and Slipstream open a short charging window (moves that carry speed keep
-  // it open by chaining). Plain WASD flying or falling never charges it.
-  const activeMove = (state.lungeT || 0) > 0 || (state.flyT || 0) > 0 || player.dashTimer > 0;
-  if (activeMove) state.earnedT = 1.1;
-  else state.earnedT = Math.max(0, (state.earnedT || 0) - dt);
-  if (player.grounded && !activeMove) {
-    m -= dt * 0.65;                                  // floor is lava: empty in ~1.5s
-  } else if (spd > 17 && state.earnedT > 0) {
-    // charging takes real speed, and the top of the bar fills slower than
-    // the bottom — max power is earned through dash chains, not idled into
-    const k = Math.min(1, (spd - 17) / 30);
-    m += dt * 0.26 * k * (1 - 0.5 * m);
-  } else {
-    m -= dt * 0.24;                                  // coasting: drains out in ~4s
-  }
-  state.momentum = Math.min(1, Math.max(0, m));
-  return state.momentum;
-}
-
 // void poison every Shadow Assassin attack applies
 function voidPoison(mult = 1) {
   return { dps: 4 * mult, t: 3 };
@@ -353,7 +321,7 @@ export const CLASSES = {
         if (state.flurryT <= 0) {
           // finisher: one big cross that sends them flying
           ctx.viewmodel.trigger('heavy');
-          const fwd = p.forwardDir(false);
+          const fwd = p.forwardDir(true);
           for (const e of ctx.meleeHit(4.8, 4)) {
             ctx.dealDamage(e, 22 * (1 + 0.6 * state.flurryPow), {
               knockback: _v1.copy(fwd).multiplyScalar(16).setY(7),
@@ -374,7 +342,7 @@ export const CLASSES = {
         ctx.stallIfAirborne(0.3);
         ctx.viewmodel.trigger('punch');
         const hits = ctx.meleeHit(3.6, 3.2);
-        const fwd = ctx.player.forwardDir(false);
+        const fwd = ctx.player.forwardDir(true);
         for (const e of hits) {
           const kb = _v1.copy(fwd).multiplyScalar(8).setY(4);
           ctx.dealDamage(e, 16, { knockback: kb });
@@ -460,20 +428,19 @@ export const CLASSES = {
   },
 
   // ========================================================== STORM REAVER ==
-  // Momentum spearfighter: every hit scales with how fast you're moving.
-  // Near-zero damage standing still, brutal at full speed. Keep moving.
+  // Pure speed skirmisher: no bar, no gating, flat damage on everything.
+  // Four dashes, and every ability is another way to move. Constant motion,
+  // launches, and dragging enemies around the sky.
   reaver: {
     id: 'reaver',
     name: 'Storm Reaver',
-    role: 'Momentum spearfighter',
-    tagline: 'Speed is the weapon. Build it, keep it, spend it.',
-    playstyle: 'Damage scales with your MOMENTUM bar, and only EARNED speed feeds it: dashes, Storm Lunge, Galvanize, Cyclone and Slipstream charge the bar — plain flying or falling never does. It drains the moment you coast, faster still on the ground. Build the bar with moves, spend it on a spear hit at up to 5× power, then build it again. You also fall a little slower than everyone else.',
+    role: 'Speed skirmisher',
+    tagline: 'Nothing in the sky is faster than you.',
+    playstyle: 'Four dashes and every ability moves you. Storm Lunge spears a line straight through anyone in your way, Thunderclap cracks the air around you on demand, Cyclone launches you and everything nearby into the sky together, and Slipstream lets you fly free — anyone you touch gets dragged along and shredded for it. Never stop moving.',
     color: 0x55ddff,
     stats: { maxHealth: 90, walkSpeed: 12.5, maxDashes: 4, dashSpeed: 43, gravityScale: 0.78 },
-    speedMeter: true,   // HUD shows the momentum bar
     update(ctx, dt, state) {
       const p = ctx.player;
-      const momentum = updateMomentum(p, state, dt);
       // --- storm lunge: spear-first dash that skewers everything in the path ---
       if (state.lungeT > 0) {
         state.lungeT -= dt;
@@ -483,18 +450,17 @@ export const CLASSES = {
         for (const e of ctx.sphereHit(tip, 3.4)) {
           if (state.lungeHit.has(e)) continue;
           state.lungeHit.add(e);
-          const mul = reaverMul(state.momentum);
-          ctx.dealDamage(e, 16 * mul, {
+          ctx.dealDamage(e, state.lungeDmg || 18, {
             knockback: _v2.copy(state.lungeDir).multiplyScalar(8).setY(4),
           });
-          ctx.effects.impactBurst(e.center(new THREE.Vector3()), { color: 0x88eeff, size: 1.6 + mul * 0.7 });
-          if (mul > 1.4) ctx.game.hitstop(0.04);
+          ctx.effects.impactBurst(e.center(new THREE.Vector3()), { color: 0x88eeff, size: 2 });
+          ctx.game.hitstop(0.04);
           ctx.audio?.play('zap');
         }
         ctx.effects.glow(tip, { color: 0x66eaff, size: 1.2, life: 0.12 });
         // lunge ends with the speed kept — that's the whole economy
       }
-      // --- slipstream: brief free flight, speed preserved through turns ---
+      // --- slipstream: free flight that drags anyone you touch along with you ---
       if (state.flyT > 0) {
         state.flyT -= dt;
         const wish = p.wishDir(false);           // camera-relative, includes pitch
@@ -505,55 +471,62 @@ export const CLASSES = {
           ctx.effects.glow(p.position.clone().add(_v1.set(0, 1, 0)), { color: 0x88eeff, size: 1.0, life: 0.18 });
         }
         if (Math.random() < dt * 8) ctx.effects.dashStreaks(ctx.camera);
+        // drag field: tick damage + drag on anything close enough to touch
+        state.dragTick = (state.dragTick ?? 0) - dt;
+        if (state.dragTick <= 0) {
+          state.dragTick = 0.15;
+          const center = p.position.clone(); center.y += 1;
+          for (const e of ctx.sphereHit(center, state.dragR || 4.5)) {
+            const kb = p.vel.clone().multiplyScalar(0.45); kb.y += 1.5;
+            ctx.dealDamage(e, 3.5, { knockback: kb });
+            ctx.effects.glow(e.center(new THREE.Vector3()), { color: 0xaaf2ff, size: 0.5, life: 0.2 });
+          }
+        }
       }
-      // --- momentum visuals: crackle and streak as the bar fills ---
+      // --- speed trail: pure velocity, no bar to scale off ---
       const spd = p.vel.length();
-      if (spd > 18 || momentum > 0.4) {
+      if (spd > 18) {
         state.trailTick = (state.trailTick ?? 0) - dt;
         if (state.trailTick <= 0) {
           state.trailTick = 0.05;
           const back = p.position.clone().addScaledVector(p.vel, -0.04);
           back.y += 0.9 + Math.random() * 0.6;
-          ctx.effects.glow(back, { color: momentum > 0.7 ? 0xaaf2ff : 0x55aacc, size: 0.4 + momentum * 0.9, life: 0.22 });
+          ctx.effects.glow(back, { color: 0x55aacc, size: 0.7, life: 0.22 });
         }
-        if (momentum > 0.7 && Math.random() < dt * 6) ctx.effects.dashStreaks(ctx.camera);
       }
     },
     basic: {
       name: 'Skypiercer',
-      desc: 'A spear thrust in front of you. Damage scales with your momentum bar — empty it tickles, full it impales at 5× power.',
+      desc: 'A spear thrust in front of you. Flat damage, fast recovery — the attack you throw between dashes.',
       cooldown: 0.28,
       execute(ctx, state) {
-        ctx.viewmodel.trigger('punch');   // no air-stall: never kill your own momentum
+        ctx.viewmodel.trigger('punch');   // no air-stall: never kill your own speed
         const p = ctx.player;
-        const mul = reaverMul(state.momentum);
         const hits = ctx.meleeHit(5.5, 3.6);
-        const fwd = p.forwardDir(false);
+        const fwd = p.forwardDir(true);
         for (const e of hits) {
-          ctx.dealDamage(e, 9 * mul, { knockback: _v1.copy(fwd).multiplyScalar(5 + 3 * mul).setY(2.5) });
-          if (mul > 1.4) {
-            ctx.effects.impactBurst(e.center(new THREE.Vector3()), { color: 0x88eeff, size: 1.8 });
-          } else {
-            ctx.effects.burst(e.center(new THREE.Vector3()), { count: 8, color: 0x88eeff, speed: 6, size: 0.2, life: 0.25 });
-          }
+          ctx.dealDamage(e, 10, { knockback: _v1.copy(fwd).multiplyScalar(8).setY(2.5) });
+          const c = e.center(new THREE.Vector3());
+          ctx.effects.burst(c, { count: 8, color: 0x88eeff, speed: 6, size: 0.2, life: 0.25 });
+          ctx.effects.impactBurst(c, { color: 0x88eeff, size: 1.8 });
         }
-        if (hits.length) {
-          ctx.audio?.play('slash');
-          if (mul > 1.4) { ctx.game.hitstop(0.035); ctx.shake(0.12); }
-        } else ctx.audio?.play('whoosh');
+        if (hits.length) ctx.audio?.play('slash');
+        else ctx.audio?.play('whoosh');
       },
     },
     abilities: [
       {
-        slot: 'Q', name: 'Storm Lunge', cooldown: 3.5,
-        desc: 'Lunge spear-first along your aim, skewering everything near your path. Damage scales with your momentum bar, and the lunge leaves you faster than it found you.',
+        slot: 'Q', name: 'Storm Lunge', cooldown: 3.5, chargeable: true,
+        desc: 'Spear-first dash that skewers everything in your path. Charged: faster, farther, and it hits harder. Leaves you quicker than it found you.',
         execute(ctx, state) {
+          const cp = ctx.chargePower || 0;
           const p = ctx.player;
-          // entering fast lunges faster — momentum compounds
-          state.lungeSpeed = Math.min(64, Math.max(42, p.vel.length() * 1.1 + 8));
-          state.lungeT = 0.34;
+          state.lungeSpeed = Math.min(78, Math.max(42 + 14 * cp, p.vel.length() * 1.1 + 8 + 14 * cp));
+          state.lungeT = 0.34 + 0.14 * cp;
+          state.lungeDmg = 18 + 12 * cp;
           state.lungeDir = ctx.aimDir();
           state.lungeHit = new Set();
+          p.dashTimer = 0;   // the lunge owns velocity now
           p.grounded = false;
           p.invulnTimer = Math.max(p.invulnTimer, 0.25);
           ctx.viewmodel.trigger('heavy');
@@ -562,60 +535,57 @@ export const CLASSES = {
         },
       },
       {
-        slot: 'E', name: 'Galvanize', cooldown: 6,
-        desc: 'A jolt of lightning MULTIPLIES your current speed, pops you upward, and bursts around you for light damage. The faster you already are, the more it gives.',
+        slot: 'E', name: 'Thunderclap', cooldown: 6, chargeable: true,
+        desc: 'Lightning cracks around you, stunning everything it touches for a beat. Charged: wider, harder, longer stun.',
         execute(ctx, state) {
+          const cp = ctx.chargePower || 0;
           const p = ctx.player;
-          state.earnedT = 1.4;   // ability speed counts toward the bar
-          // multiplier: scales what you have (with a floor so it works from a standstill)
-          const s = p.vel.length();
-          if (s > 4) {
-            p.vel.multiplyScalar(1.35);
-          } else {
-            p.vel.addScaledVector(p.forwardDir(true), 10);
-          }
-          p.vel.y += 6;                    // a little hop
-          p.grounded = false;
-          p.stallTimer = 0;
-          // small lightning burst
-          const c = p.position.clone(); c.y += 1.1;
-          for (const e of ctx.sphereHit(c, 6)) {
-            ctx.dealDamage(e, 8, { knockback: _v2.set(0, 4, 0) });
+          const R = 12 + 4 * cp;
+          const c = p.position.clone(); c.y += 1;
+          const source = c.clone(); source.y += 3;
+          for (const e of ctx.sphereHit(c, R)) {
+            ctx.dealDamage(e, 7 + 6 * cp, { knockback: _v1.set(0, 2 + 2 * cp, 0), freeze: 0.9 + 0.5 * cp });
             const tp = e.center(new THREE.Vector3());
-            ctx.effects.beam(c, tp, { color: 0x88eeff, radius: 0.08, life: 0.18 });
+            ctx.effects.beam(source, tp, { color: 0xaaf2ff, radius: 0.1, life: 0.16 });
+            ctx.effects.impactBurst(tp, { color: 0xaaf2ff, size: 1.6 + cp * 0.8 });
           }
-          ctx.effects.ring(c, { color: 0x88eeff, endRadius: 6, life: 0.35, thickness: 0.3 });
-          ctx.effects.burst(c, { count: 14, color: 0xaaf2ff, speed: 8, size: 0.22, life: 0.3 });
+          ctx.effects.ring(c, { color: 0xaaf2ff, endRadius: R, life: 0.3, thickness: 0.15 + cp * 0.1 });
+          ctx.shake(0.2 + cp * 0.15);
           ctx.audio?.play('zap');
         },
       },
       {
-        slot: 'R', name: 'Cyclone', cooldown: 7,
-        desc: 'A whirlwind hurls you high into the sky — your horizontal momentum is untouched. Enemies caught in it are dragged up with you.',
+        slot: 'R', name: 'Cyclone', cooldown: 7, chargeable: true,
+        desc: 'A whirlwind that hurls you — and everyone near you — into the sky. Charged: a bigger storm that throws everyone higher.',
         execute(ctx, state) {
+          const cp = ctx.chargePower || 0;
           const p = ctx.player;
-          state.earnedT = 1.2;   // ability speed counts toward the bar
-          p.vel.y = Math.max(p.vel.y, 28);   // high up, x/z momentum kept
+          const R = 8.5 + 2.5 * cp;
+          p.dashTimer = 0;   // a live dash rewrites velocity every frame and would eat the launch
+          p.vel.y = Math.max(p.vel.y, 34 + 8 * cp);
           p.grounded = false;
           p.stallTimer = 0;
           const c = p.position.clone(); c.y += 1;
-          const mul = reaverMul(state.momentum);
-          for (const e of ctx.sphereHit(c, 5.5)) {
-            ctx.dealDamage(e, 10 * mul, { knockback: _v1.set(0, 18, 0) });
+          for (const e of ctx.sphereHit(c, R)) {
+            ctx.dealDamage(e, 20 + 12 * cp, { knockback: _v1.set(0, 30 + 8 * cp, 0) });
           }
-          ctx.effects.ring(c, { color: 0x88eeff, endRadius: 5.5, life: 0.4, thickness: 0.4 });
-          ctx.effects.ring(c.clone().add(_v1.set(0, 1.5, 0)), { color: 0xaaf2ff, endRadius: 4, life: 0.45, thickness: 0.3 });
-          ctx.effects.burst(c, { count: 26, color: 0xaaf2ff, speed: 9, size: 0.26, life: 0.45, gravity: -6 });
+          ctx.effects.ring(c, { color: 0x88eeff, endRadius: R, life: 0.4, thickness: 0.5 });
+          ctx.effects.ring(c.clone().add(_v1.set(0, 1.5, 0)), { color: 0xaaf2ff, endRadius: R * 0.76, life: 0.45, thickness: 0.4 });
+          ctx.effects.burst(c, { count: 34 + Math.floor(cp * 14), color: 0xaaf2ff, speed: 10 + cp * 4, size: 0.28, life: 0.5, gravity: -6 });
           ctx.audio?.play('whoosh');
         },
       },
       {
-        slot: 'F', name: 'Slipstream', cooldown: 9,
-        desc: 'Free flight for a moment: steer with WASD and your speed is fully preserved through every direction change.',
+        slot: 'F', name: 'Slipstream', cooldown: 9, chargeable: true,
+        desc: 'Free flight — steer with WASD. Anyone you touch gets dragged along for the ride and shredded lightly. Charged: longer, faster flight with a wider wake.',
         execute(ctx, state) {
+          const cp = ctx.chargePower || 0;
           const p = ctx.player;
-          state.flyT = 1.6;
-          state.flySpeed = Math.max(p.vel.length(), 20);
+          state.flyT = 1.6 + 0.9 * cp;
+          state.flySpeed = Math.max(p.vel.length() * 1.1, 26 + 10 * cp);
+          state.dragR = 4.5 + 1.2 * cp;
+          state.dragTick = 0;
+          p.dashTimer = 0;   // don't fight a live dash for velocity control
           p.grounded = false;
           p.stallTimer = 0;
           ctx.effects.ring(p.position.clone().add(_v1.set(0, 1, 0)), { color: 0x88eeff, endRadius: 3, life: 0.4, axis: 'x' });
@@ -661,7 +631,7 @@ export const CLASSES = {
         ctx.stallIfAirborne(0.32);
         ctx.viewmodel.trigger('punch');
         const hits = ctx.meleeHit(4.0, 3.6);
-        const fwd = ctx.player.forwardDir(false);
+        const fwd = ctx.player.forwardDir(true);
         for (const e of hits) {
           ctx.dealDamage(e, 16, { knockback: _v1.copy(fwd).multiplyScalar(7).setY(3.5) });
           ctx.effects.burst(e.position.clone().setY(e.position.y + e.height * 0.6), {
@@ -680,15 +650,14 @@ export const CLASSES = {
           const p = ctx.chargePower || 0;
           ctx.viewmodel.trigger('punch');
           state.blockT = 0.6;   // brief guard during the bash
-          const dir = ctx.aimDir(); dir.y = Math.max(dir.y, 0);
+          const dir = ctx.aimDir();
           const hits = ctx.coneHit(4.6 + p * 1.6, 85);
           for (const e of hits) {
-            const kb = _v1.copy(dir).setY(0).normalize().multiplyScalar(17 + 9 * p);
-            kb.y = 5 + 3 * p;
+            const kb = _v1.copy(dir).multiplyScalar(17 + 9 * p);
+            kb.y += 4 + 2 * p;
             ctx.dealDamage(e, 15 * (1 + 0.5 * p), { knockback: kb });
           }
-          const front = ctx.player.position.clone().addScaledVector(ctx.player.forwardDir(false), 2.5);
-          front.y += 1.2;
+          const front = ctx.player.eyePosition.clone().addScaledVector(dir, 2.5);
           ctx.effects.ring(front, { color: 0xffd76a, endRadius: 4 + p * 1.5, life: 0.35, axis: 'x', thickness: 0.4 });
           if (hits.length) {
             ctx.effects.impactBurst(front, { color: 0xffe9a8, size: 3 });
@@ -944,7 +913,7 @@ export const CLASSES = {
         ctx.stallIfAirborne(0.28);
         ctx.viewmodel.trigger('punch');
         const hits = ctx.meleeHit(3.4, 2.6);
-        const fwd = ctx.player.forwardDir(false);
+        const fwd = ctx.player.forwardDir(true);
         let anyBehind = false;
         for (const e of hits) {
           const toPlayer = _v1.copy(ctx.player.position).sub(e.position).normalize();

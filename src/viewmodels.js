@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { damp, clamp } from './utils.js';
+import { buildChampionViewRig } from './championAssets.js';
 
 // ---------------------------------------------------------------------------
 // ViewModel: the first-person hands/weapon rig attached to the camera.
@@ -162,7 +163,8 @@ const BUILDERS = {
 export class ViewModel {
   constructor(camera, classId) {
     this.camera = camera;
-    const built = BUILDERS[classId]();
+    // GLB champion arms if preloaded, old procedural rig otherwise
+    const built = buildChampionViewRig(classId) ?? BUILDERS[classId]();
     this.rig = built;
     this.group = new THREE.Group();
     this.group.add(built.group);
@@ -243,8 +245,11 @@ export class ViewModel {
     this.camera.remove(this.group);
     this.camera.remove(this._fill);
     this.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose();
+      // GLB geometry is shared with the preloaded template — never dispose it
+      if (o.geometry && !this.rig.usesGlb) o.geometry.dispose();
+      if (o.material) {
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
+      }
     });
   }
 }

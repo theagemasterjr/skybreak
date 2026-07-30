@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { clamp } from './utils.js';
-import { reaverMul } from './classes.js';
 
 // ---------------------------------------------------------------------------
 // HUD: in-combat overlay. Health, dash pips, ability slots with cooldown
@@ -30,11 +29,11 @@ export class HUD {
       <div id="wave-banner"><span id="wave-label">WAVE 1</span><span id="wave-remaining"></span></div>
       <div id="run-kills"></div>
       <div id="announce"></div>
+      <div id="spectate-banner">
+        <span id="spectate-line">SPECTATING <b id="spectate-name"></b></span>
+        <span class="spectate-sub">when they fall, you follow their hunter</span>
+      </div>
       <div id="bottom-left">
-        <div id="speed-wrap">
-          <div id="speed-bar"><div id="speed-fill"></div></div>
-          <span id="speed-mult">0.2×</span>
-        </div>
         <div id="hp-wrap">
           <div id="hp-bar"><div id="hp-fill"></div><div id="hp-ghost"></div><div id="hp-shield"></div></div>
           <div id="hp-num">100</div>
@@ -63,12 +62,11 @@ export class HUD {
     this.screenFlash = this.el.querySelector('#screen-flash');
     this._flashT = 0;
     this._flashDur = 0.25;
-    this.speedWrap = this.el.querySelector('#speed-wrap');
-    this.speedFill = this.el.querySelector('#speed-fill');
-    this.speedMult = this.el.querySelector('#speed-mult');
     this.voidWarning = this.el.querySelector('#void-warning');
     this.crosshair = this.el.querySelector('#crosshair');
     this.dmgLayer = this.el.querySelector('#dmg-numbers');
+    this.spectateBanner = this.el.querySelector('#spectate-banner');
+    this.spectateName = this.el.querySelector('#spectate-name');
 
     this.slots = {};          // slot -> {el, cd, keyEl}
     this.pips = [];
@@ -108,8 +106,6 @@ export class HUD {
     }
     const accent = '#' + classDef.color.toString(16).padStart(6, '0');
     this.el.style.setProperty('--class-accent', accent);
-    this.hasSpeedMeter = !!classDef.speedMeter;
-    this.speedWrap.classList.toggle('active', this.hasSpeedMeter);
   }
 
   flashAbility(slot) {
@@ -146,6 +142,16 @@ export class HUD {
   setDuelInfo(round, myScore, oppScore) {
     this.waveLabel.textContent = `ROUND ${round}`;
     this.waveRemaining.textContent = `YOU ${myScore} · ${oppScore} RIVAL`;
+  }
+
+  // FFA: top-center "SPECTATING <NAME>" banner, or hide it when null. Safe to call repeatedly.
+  setSpectating(nameOrNull) {
+    if (nameOrNull) {
+      this.spectateName.textContent = nameOrNull;
+      this.spectateBanner.classList.add('active');
+    } else {
+      this.spectateBanner.classList.remove('active');
+    }
   }
 
   _announce(text, cls) {
@@ -204,14 +210,6 @@ export class HUD {
     this.hpNum.textContent = Math.ceil(p.health + p.shield);
     this.hpShield.style.width = (clamp(p.shield / p.maxHealth, 0, 1) * 100) + '%';
     this.el.classList.toggle('low-hp', frac < 0.3 && p.alive);
-
-    // momentum meter (Storm Reaver): fill + damage multiplier readout
-    if (this.hasSpeedMeter && g.combat) {
-      const k = clamp(g.combat.state.momentum || 0, 0, 1);
-      this.speedFill.style.width = (k * 100) + '%';
-      this.speedMult.textContent = reaverMul(k).toFixed(1) + '×';
-      this.speedWrap.classList.toggle('hot', k > 0.72);
-    }
 
     // dash pips
     for (let i = 0; i < this.pips.length; i++) {

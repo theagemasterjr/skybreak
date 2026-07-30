@@ -67,25 +67,28 @@ export class PlayerCombat {
         out.sort((a, b) => a.t - b.t);
         return out.map((o) => o.e);
       },
-      // Melee hitbox: a box in FRONT of the player (horizontal facing only —
-      // aiming up or down doesn't matter). Generous vertical band so enemies
-      // slightly above/below still get clipped.
+      // Melee hitbox: an aim-aligned box in front of the player, built from the
+      // FULL aim direction (yaw + pitch) so the swing extends wherever the
+      // player is looking, including straight up or down. Generous band
+      // perpendicular to aim so enemies slightly off-axis still get clipped.
       meleeHit(range, width = 2.8) {
-        const fwd = g.player.forwardDir(false);
-        const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
-        const feet = g.player.position;
+        const fwd = g.player.forwardDir(true);
+        const worldUp = fwd.y > 0.98 || fwd.y < -0.98
+          ? new THREE.Vector3(1, 0, 0)
+          : new THREE.Vector3(0, 1, 0);
+        const right = new THREE.Vector3().crossVectors(fwd, worldUp).normalize();
+        const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+        const origin = g.player.position.clone().add(new THREE.Vector3(0, 1.1, 0));
         const to = new THREE.Vector3();
         const out = [];
         for (const e of g.enemies) {
           if (!e.alive) continue;
-          to.copy(e.position).sub(feet);
-          const dy = (e.position.y + e.height * 0.5) - (feet.y + 1.1);
-          if (dy < -2.2 || dy > 3.2) continue;
-          to.y = 0;
+          to.copy(e.position).setY(e.position.y + e.height * 0.5).sub(origin);
+          const veryClose = to.lengthSq() < 1.6 * 1.6;
           const along = to.dot(fwd);
           const side = Math.abs(to.dot(right));
-          const veryClose = to.lengthSq() < 1.6 * 1.6;
-          if (veryClose || (along > -e.radius && along < range + e.radius && side < width * 0.5 + e.radius)) {
+          const vert = Math.abs(to.dot(up));
+          if (veryClose || (along > -e.radius && along < range + e.radius && side < width * 0.5 + e.radius && vert < 2.2 + e.radius)) {
             out.push(e);
           }
         }

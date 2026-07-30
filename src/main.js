@@ -1,7 +1,12 @@
 import { Game } from './game.js';
+import { preloadEnemyModels } from './enemyAssets.js';
+import { preloadChampionModels } from './championAssets.js';
 
 const canvas = document.getElementById('game-canvas');
 const game = new Game(canvas);
+// fire-and-forget: enemies/players fall back to procedural models until these arrive
+preloadEnemyModels();
+preloadChampionModels();
 
 let last = performance.now();
 function animate(now) {
