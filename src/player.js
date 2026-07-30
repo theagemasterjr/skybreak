@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { clamp, damp, lerp } from './utils.js';
 import { World } from './world.js';
+import { getSensMult } from './settings.js';
 
 // ---------------------------------------------------------------------------
 // Player: first-person aerial movement controller.
@@ -25,7 +26,8 @@ export class Player {
     this.vel = new THREE.Vector3();
     this.yaw = 0;            // spawn at +Z looking toward the arena center (-Z)
     this.pitch = 0;
-    this.sensitivity = 0.0021;
+    this.baseSensitivity = 0.0021;
+    this.sensitivity = this.baseSensitivity * getSensMult();
 
     // movement stats (class can override some)
     this.walkSpeed = 11;
@@ -198,6 +200,10 @@ export class Player {
     this.slowFallTimer = 0;
     this.rootTimer = 0;
     this.dashTimer = 0;
+  }
+
+  applySensitivity() {
+    this.sensitivity = this.baseSensitivity * getSensMult();
   }
 
   update(dt, time) {

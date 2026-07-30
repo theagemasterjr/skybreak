@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CLASSES, CLASS_LIST } from './classes.js';
 import { ENEMY_TYPES, ENEMY_INFO } from './enemies.js';
 import { MODEL_BUILDERS } from './enemyModels.js';
+import { getSensMult, setSensMult } from './settings.js';
 
 // ---------------------------------------------------------------------------
 // Menus: main title, class select, pause, death, and codex screens.
@@ -48,7 +49,37 @@ export class Menus {
     };
     this._codexFrom = 'main';   // screen to return to when the codex closes
 
+    // mouse sensitivity slider on the main menu and every pause screen
+    this._sensControls = [];
+    for (const name of ['main', 'pause', 'duelpause', 'mppause']) {
+      this._addSensControl(this.screens[name]);
+    }
+
     window.addEventListener('keydown', (e) => this._onKey(e));
+  }
+
+  _addSensControl(screen) {
+    const pct = Math.round(getSensMult() * 100);
+    const row = document.createElement('div');
+    row.className = 'sens-row';
+    row.innerHTML = `
+      <label>MOUSE SENSITIVITY <b>${pct}%</b></label>
+      <input type="range" min="10" max="300" step="5" value="${pct}" aria-label="Mouse sensitivity">
+    `;
+    const slider = row.querySelector('input');
+    const label = row.querySelector('b');
+    slider.addEventListener('keydown', (e) => e.stopPropagation());
+    slider.addEventListener('input', () => {
+      const v = Number(slider.value);
+      setSensMult(v / 100);
+      this.game.player?.applySensitivity();
+      for (const c of this._sensControls) {
+        c.slider.value = v;
+        c.label.textContent = v + '%';
+      }
+    });
+    screen.querySelector('.menu-content').appendChild(row);
+    this._sensControls.push({ slider, label });
   }
 
   _buildMain() {
