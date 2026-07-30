@@ -22,6 +22,7 @@ export class PlayerCombat {
     this.charging = null;        // {slot, t} while a chargeable ability is held
     this.chargeFxTimer = 0;
     this.CHARGE_TIME = 1.1;      // seconds to full charge
+    this.lockT = 0;              // channel lock (Purple Nuke): no casting at all
 
     game.player.setClassStats(this.classDef.stats);
   }
@@ -220,7 +221,8 @@ export class PlayerCombat {
     // class passive update
     if (this.classDef.update) this.classDef.update(this._ctx(), dt, this.state);
 
-    if (g.player.alive && !g.player.freeze) {
+    this.lockT = Math.max(0, this.lockT - dt);
+    if (g.player.alive && !g.player.freeze && this.lockT <= 0) {
       // ---- charging (hold a chargeable ability key) ----
       if (this.charging) {
         const action = SLOT_ACTIONS[this.charging.slot];

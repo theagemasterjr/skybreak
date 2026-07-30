@@ -52,6 +52,63 @@ function removeAnchor(ctx, state) {
   state.anchor = null;
 }
 
+// ---- sorcerer orb meshes ----
+function buildBlueOrb() {
+  const g = new THREE.Group();
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(2.2, 24, 18),
+    new THREE.MeshBasicMaterial({
+      color: 0x3366ff, transparent: true, opacity: 0.32,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  g.add(shell);
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.7, 16, 12),
+    new THREE.MeshBasicMaterial({
+      color: 0xbbddff, transparent: true, opacity: 0.95,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  g.add(core);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1.6, 0.07, 8, 40),
+    new THREE.MeshBasicMaterial({
+      color: 0x66aaff, transparent: true, opacity: 0.8,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  ring.rotation.x = Math.PI / 2.6;
+  g.add(ring);
+  const light = new THREE.PointLight(0x4488ff, 8, 20, 2);
+  g.add(light);
+  return g;
+}
+
+function buildPurpleOrb() {
+  const g = new THREE.Group();
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(1.0, 24, 18),
+    new THREE.MeshBasicMaterial({
+      color: 0xa64dff, transparent: true, opacity: 0.4,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  g.add(shell);
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.45, 16, 12),
+    new THREE.MeshBasicMaterial({
+      color: 0xf0e0ff, transparent: true, opacity: 0.95,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  g.add(core);
+  const light = new THREE.PointLight(0xa64dff, 2, 24, 2);
+  light.name = 'nukeLight';
+  g.add(light);
+  return g;
+}
+
 // focus reticle (assassin targeting)
 function buildFocusMesh() {
   const mat = new THREE.SpriteMaterial({
@@ -413,10 +470,10 @@ export const CLASSES = {
           ctx.viewmodel.trigger('heavy');
           const dir = ctx.aimDir();
           ctx.projectiles.spawn({
-            pos: ctx.muzzle(), vel: dir.multiplyScalar(34),
+            pos: ctx.muzzle(), vel: dir.multiplyScalar(52),
             damage: 26 * (1 + 0.7 * p), color: 0xffaa55, coreColor: 0xfff2cc,
             size: 1.1 + 0.6 * p, radius: 1.2 + 0.5 * p,
-            knockback: 15 + 8 * p, pierce: true, life: 0.8, gravity: 0,
+            knockback: 15 + 8 * p, pierce: true, life: 0.65, gravity: 0,
             trailEvery: 0.01,
           });
           ctx.effects.ring(ctx.muzzle(), { color: 0xffaa55, endRadius: 2 + p, life: 0.25, axis: 'x', thickness: 0.35 });
@@ -598,129 +655,253 @@ export const CLASSES = {
     ],
   },
 
-  // ============================================================== WARDEN ==
-  warden: {
-    id: 'warden',
-    name: 'Warden',
-    role: 'Bulwark knight',
-    tagline: 'Highest health in the game. Pull them in. Outlast them all.',
-    playstyle: 'The immovable anchor. Drag enemies to you with Chain Pull, hurl them off the island with Aegis Bash, taunt everything with Battle Roar and heal inside your Bulwark Dome. You win by refusing to die.',
-    color: 0xffd76a,
-    stats: { maxHealth: 170, walkSpeed: 10.5, maxDashes: 2, dashSpeed: 36 },
+  // ============================================================ SORCERER ==
+  // Limitless kit: Red knocks away, Blue pulls in, both together make Purple.
+  sorcerer: {
+    id: 'sorcerer',
+    name: 'Sorcerer',
+    role: 'Limitless duelist',
+    tagline: 'Throughout heaven and earth, you alone are the honored one.',
+    playstyle: 'Control space with cursed energy. Red snipes at any range, Blue drags enemies into its core and holds them helpless, Black Flash detonates point-blank, and when you have three free seconds — Purple erases whatever it touches.',
+    color: 0x8f5bff,
+    stats: { maxHealth: 100, walkSpeed: 12, maxDashes: 3, dashSpeed: 41 },
     update(ctx, dt, state) {
       const p = ctx.player;
-      if (state.blockT > 0) {
-        state.blockT -= dt;
-        p.damageReduction = 0.65;
-        if (ctx.viewmodel.rig.shield) {
-          ctx.viewmodel.rig.shield.position.lerp(_v1.set(-0.12, 0, -0.42), Math.min(1, dt * 12));
+
+      // ---- BLUE: drifting singularity that drags everything into its core ----
+      if (state.blue) {
+        const B = state.blue;
+        B.t -= dt;
+        // glides forward then anchors in place
+        B.vel.multiplyScalar(Math.exp(-1.5 * dt));
+        B.pos.addScaledVector(B.vel, dt);
+        B.mesh.position.copy(B.pos);
+        B.mesh.rotation.y += dt * 1.6;
+        const pulse = 1 + Math.sin(ctx.game.simTime * 6) * 0.06;
+        B.mesh.scale.setScalar(pulse);
+        // swirling intake: sparks spiral in from the rim
+        if (Math.random() < dt * 30) {
+          const a = Math.random() * Math.PI * 2;
+          const rr = B.r * (0.5 + Math.random() * 0.5);
+          ctx.effects.glow(_v1.set(B.pos.x + Math.cos(a) * rr, B.pos.y + (Math.random() - 0.5) * 2.5, B.pos.z + Math.sin(a) * rr).clone(), {
+            color: 0x66aaff, size: 0.5, life: 0.3, grow: -1.2,
+          });
+        }
+        // suction ticks: yank outer targets in, hold + crush inner ones
+        B.tick -= dt;
+        if (B.tick <= 0) {
+          B.tick = 0.22;
+          for (const e of ctx.sphereHit(B.pos, B.r)) {
+            const c = e.center(new THREE.Vector3());
+            const d = c.distanceTo(B.pos);
+            if (d < 3) {
+              // trapped at the core: held (no dashing out), lightly crushed
+              const kb = _v1.copy(B.pos).sub(c).normalize().multiplyScalar(3);
+              ctx.dealDamage(e, 2.5, { freeze: 0.5, knockback: kb });
+              ctx.effects.glow(c, { color: 0x99ccff, size: 0.9, life: 0.2 });
+            } else {
+              // being pulled: reeled toward the core
+              const kb = _v1.copy(B.pos).sub(c).normalize().multiplyScalar(Math.min(11 + d * 2.2, 28));
+              kb.y += 2;
+              ctx.dealDamage(e, 1.5, { knockback: kb });
+              // pull streaks along the suction line so the drag reads
+              ctx.effects.glow(c.clone().lerp(B.pos, 0.33), { color: 0x5599ff, size: 0.45, life: 0.18 });
+              ctx.effects.glow(c.clone().lerp(B.pos, 0.66), { color: 0x5599ff, size: 0.45, life: 0.18 });
+            }
+          }
+        }
+        if (B.t <= 0 || !p.alive) {
+          ctx.effects.ring(B.pos.clone(), { color: 0x4488ff, endRadius: B.r, life: 0.45, thickness: 0.4 });
+          ctx.effects.burst(B.pos.clone(), { count: 30, color: 0x88bbff, color2: 0x3355dd, speed: 12, size: 0.3, life: 0.5, gravity: 0 });
+          ctx.game.scene.remove(B.mesh);
+          B.mesh.traverse((o) => {
+            if (o.geometry) o.geometry.dispose();
+            if (o.material) o.material.dispose();
+          });
+          state.blue = null;
+          ctx.audio?.play('explosion');
+        }
+      }
+
+      // ---- PURPLE: 3s rooted channel, then the nuke flies ----
+      if (state.nuke) {
+        const N = state.nuke;
+        N.t -= dt;
+        p.damageTakenMult = 1.5;               // committed: you eat extra damage
+        p.root(0.2);                            // refreshed: no move/dash/jump
+        ctx.game.combat.lockT = Math.max(ctx.game.combat.lockT || 0, 0.2);  // no other casts
+        const k = 1 - Math.max(0, N.t) / 3;     // 0 -> 1 over the channel
+        // the orb hangs in front of your aim and swells
+        const dir = ctx.aimDir();
+        const orbPos = _v1.copy(p.eyePosition).addScaledVector(dir, 2.6 + k * 1.6);
+        N.mesh.position.copy(orbPos);
+        N.mesh.scale.setScalar(0.25 + k * 2.3);
+        N.mesh.rotation.y += dt * 3;
+        N.light.intensity = 2 + k * 10;
+        // red + blue sparks converging into purple
+        if (Math.random() < dt * 40) {
+          const off = _v2.set((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5);
+          ctx.effects.glow(orbPos.clone().add(off), {
+            color: Math.random() < 0.5 ? 0xff2244 : 0x3366ff, size: 0.3 + k * 0.4, life: 0.22, grow: -1.5,
+          });
+        }
+        ctx.shake(k * 0.04);
+        if (N.t <= 0 && p.alive) {
+          // FIRE.
+          const firePos = orbPos.clone();
+          ctx.game.scene.remove(N.mesh);
+          N.disposeMesh();
+          state.nuke = null;
+          ctx.viewmodel.trigger('heavy');
+          ctx.projectiles.spawn({
+            pos: firePos, vel: dir.clone().multiplyScalar(80),
+            damage: 95, aoe: 10, aoeDamage: 60, color: 0xa64dff, coreColor: 0xf0e0ff,
+            size: 2.6, radius: 2.6, knockback: 26, life: 0.9, gravity: 0,
+            trailEvery: 0.006, explodeOnExpire: true,
+            onImpact: (pos) => {
+              ctx.shake(0.7);
+              ctx.game.hitstop(0.12);
+              ctx.game.hud?.flash('rgba(166, 77, 255, 0.22)', 0.35);
+              ctx.effects.impactBurst(pos, { color: 0xcc88ff, size: 8 });
+              ctx.effects.ring(pos, { color: 0xa64dff, endRadius: 10, life: 0.5, thickness: 0.6 });
+              ctx.audio?.play('meteorHit');
+            },
+          });
+          ctx.effects.ring(firePos, { color: 0xa64dff, endRadius: 4, life: 0.3, axis: 'x', thickness: 0.4 });
+          ctx.game.hud?.flash('rgba(166, 77, 255, 0.12)', 0.2);
+          ctx.shake(0.4);
+          ctx.audio?.play('explosion');
+        } else if (!p.alive && state.nuke) {
+          // died mid-channel: fizzle
+          ctx.game.scene.remove(N.mesh);
+          N.disposeMesh();
+          state.nuke = null;
         }
       } else {
-        if (state.drT > 0) { state.drT -= dt; p.damageReduction = 0.3; }
-        else p.damageReduction = 0;
-        if (ctx.viewmodel.rig.shield) {
-          ctx.viewmodel.rig.shield.position.lerp(_v1.set(-0.55, 0.02, -0.1), Math.min(1, dt * 8));
-        }
+        p.damageTakenMult = 1;
       }
     },
     basic: {
-      name: 'Cleave',
-      desc: 'A wide sword swing that hits everything in front of you.',
-      cooldown: 0.38,
+      name: 'Cursed Fists',
+      desc: 'Fast bare-knuckle strikes laced with cursed energy.',
+      cooldown: 0.3,
       execute(ctx) {
-        ctx.stallIfAirborne(0.32);
+        ctx.stallIfAirborne(0.3);
         ctx.viewmodel.trigger('punch');
-        const hits = ctx.meleeHit(4.0, 3.6);
+        const hits = ctx.meleeHit(3.6, 3.2);
         const fwd = ctx.player.forwardDir(true);
         for (const e of hits) {
-          ctx.dealDamage(e, 16, { knockback: _v1.copy(fwd).multiplyScalar(7).setY(3.5) });
+          ctx.dealDamage(e, 14, { knockback: _v1.copy(fwd).multiplyScalar(7).setY(3.5) });
           ctx.effects.burst(e.position.clone().setY(e.position.y + e.height * 0.6), {
-            count: 10, color: 0xffe9a8, speed: 6, size: 0.22, life: 0.3,
+            count: 9, color: 0xc9a8ff, speed: 6, size: 0.2, life: 0.28,
           });
         }
-        if (hits.length) { ctx.shake(0.13); ctx.game.hitstop(0.03); ctx.audio?.play('slash'); }
+        if (hits.length) { ctx.shake(0.11); ctx.game.hitstop(0.025); ctx.audio?.play('punchHit'); }
         else ctx.audio?.play('whoosh');
       },
     },
     abilities: [
       {
-        slot: 'Q', name: 'Aegis Bash', cooldown: 7, chargeable: true,
-        desc: 'Slam your shield forward: enemies in front are hurled away. Great near edges.',
+        slot: 'Q', name: 'Red', cooldown: 4, chargeable: true,
+        desc: 'Repulsive force fired as a blazing red bolt — so fast it snipes across the whole arena. Charge for a heavier blast.',
+        execute(ctx) {
+          const p = ctx.chargePower || 0;
+          ctx.slowFallIfAirborne(0.5);
+          ctx.viewmodel.trigger('heavy');
+          const dir = ctx.aimDir();
+          ctx.projectiles.spawn({
+            pos: ctx.muzzle(), vel: dir.multiplyScalar(110),
+            damage: 24 * (1 + 0.6 * p), aoe: 2.2 + p, aoeDamage: 12,
+            color: 0xff2244, coreColor: 0xffffff, size: 0.55 + 0.2 * p, radius: 0.65 + 0.25 * p,
+            knockback: 15 + 6 * p, life: 1.5, gravity: 0, trailEvery: 0.005,
+          });
+          ctx.effects.ring(ctx.muzzle(), { color: 0xff2244, endRadius: 1.6 + p, life: 0.22, axis: 'x', thickness: 0.3 });
+          ctx.effects.glow(ctx.muzzle(), { color: 0xff5566, size: 1.1, life: 0.15 });
+          ctx.shake(0.2 + 0.15 * p);
+          ctx.audio?.play('beam');
+        },
+      },
+      {
+        slot: 'E', name: 'Blue', cooldown: 12, chargeable: true,
+        desc: 'Attractive force: a huge slow orb that drags everyone nearby into its core and holds them there — no dashing out. Charge for a wider, longer pull.',
         execute(ctx, state) {
+          if (state.blue) return false;   // one singularity at a time
+          const p = ctx.chargePower || 0;
+          const dir = ctx.aimDir();
+          const mesh = buildBlueOrb();
+          const pos = ctx.muzzle().addScaledVector(dir, 2.5);
+          mesh.position.copy(pos);
+          ctx.game.scene.add(mesh);
+          state.blue = {
+            pos, vel: dir.multiplyScalar(9),
+            t: 3.5 + 1.5 * p, r: 8 + 2.5 * p, tick: 0, mesh,
+          };
+          ctx.viewmodel.trigger('cast');
+          ctx.effects.ring(pos.clone(), { color: 0x4488ff, endRadius: 3, life: 0.3, axis: 'x', thickness: 0.3 });
+          ctx.audio?.play('charge');
+        },
+      },
+      {
+        slot: 'R', name: 'Purple Nuke', cooldown: 18,
+        desc: 'Imaginary mass. Root yourself for 3 seconds — unable to move, dash or cast, taking 1.5x damage — while a colossal purple orb swells. Then it erases everything in its path.',
+        canStart: (state) => !state.nuke,
+        execute(ctx, state) {
+          if (state.nuke) return false;
+          const p = ctx.player;
+          const mesh = buildPurpleOrb();
+          const light = mesh.getObjectByName('nukeLight');
+          ctx.game.scene.add(mesh);
+          state.nuke = {
+            t: 3, mesh, light,
+            disposeMesh: () => mesh.traverse((o) => {
+              if (o.geometry) o.geometry.dispose();
+              if (o.material) o.material.dispose();
+            }),
+          };
+          p.root(3.1);
+          ctx.game.combat.lockT = 3.05;
+          ctx.viewmodel.trigger('heavy');
+          ctx.effects.ring(p.position.clone().add(_v1.set(0, 1.2, 0)), { color: 0xa64dff, endRadius: 3, life: 0.4, axis: 'x', thickness: 0.3 });
+          ctx.audio?.play('windup');
+        },
+      },
+      {
+        slot: 'F', name: 'Black Flash', cooldown: 7, chargeable: true,
+        desc: 'Cursed energy detonates on impact: a crackling close-range blast of red, black and white lightning that hurls enemies away. Charge to reach farther and hit harder.',
+        execute(ctx) {
           const p = ctx.chargePower || 0;
           ctx.viewmodel.trigger('punch');
-          state.blockT = 0.6;   // brief guard during the bash
           const dir = ctx.aimDir();
-          const hits = ctx.coneHit(4.6 + p * 1.6, 85);
+          const hits = ctx.coneHit(6.4 + p * 1.8, 85);
           for (const e of hits) {
-            const kb = _v1.copy(dir).multiplyScalar(17 + 9 * p);
+            const kb = _v1.copy(dir).multiplyScalar(18 + 9 * p);
             kb.y += 4 + 2 * p;
-            ctx.dealDamage(e, 15 * (1 + 0.5 * p), { knockback: kb });
+            ctx.dealDamage(e, 18 * (1 + 0.5 * p), { knockback: kb });
+            // red/white lightning arcs onto the victim: jagged 3-segment bolt
+            const c = e.center(new THREE.Vector3());
+            let prev = ctx.muzzle();
+            for (let i = 0; i < 3; i++) {
+              const pt = i === 2 ? c : prev.clone().lerp(c, 0.5).add(new THREE.Vector3(
+                (Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 1.6
+              ));
+              ctx.effects.beam(prev, pt, { color: i === 1 ? 0xffffff : 0xff2233, radius: 0.07, life: 0.16 });
+              prev = pt;
+            }
+            ctx.effects.impactBurst(c, { color: 0xff3344, size: 2.6 });
+            // black crackle: non-additive near-black shards
+            ctx.effects.burst(c, { count: 12, color: 0x15151a, color2: 0x2a0a12, speed: 9, size: 0.3, life: 0.35, additive: false });
+            ctx.effects.burst(c, { count: 10, color: 0xffffff, color2: 0xff2233, speed: 11, size: 0.22, life: 0.3 });
           }
-          const front = ctx.player.eyePosition.clone().addScaledVector(dir, 2.5);
-          ctx.effects.ring(front, { color: 0xffd76a, endRadius: 4 + p * 1.5, life: 0.35, axis: 'x', thickness: 0.4 });
+          const front = ctx.player.eyePosition.clone().addScaledVector(dir, 2.8);
+          ctx.effects.ring(front, { color: 0xff2233, endRadius: 4.5 + p * 1.5, life: 0.35, axis: 'x', thickness: 0.4 });
           if (hits.length) {
-            ctx.effects.impactBurst(front, { color: 0xffe9a8, size: 3 });
-            ctx.game.hitstop(0.06);
-            ctx.shake(0.25);
+            ctx.game.hitstop(0.08);
+            ctx.shake(0.35);
+            ctx.audio?.play('zap');
             ctx.audio?.play('slam');
           } else {
             ctx.audio?.play('whoosh');
           }
-        },
-      },
-      {
-        slot: 'E', name: 'Chain Pull', cooldown: 7, chargeable: true,
-        desc: 'Yank the enemy under your crosshair to you. Charged: drag up to three.',
-        execute(ctx) {
-          const p = ctx.chargePower || 0;
-          const targets = p > 0.5
-            ? ctx.coneHit(28, 30).slice(0, 3)
-            : ctx.rayHits(ctx.muzzle(), ctx.aimDir(), 28, 2.5).slice(0, 1);
-          if (!targets.length) return false;
-          for (const target of targets) {
-            const tp = target.position.clone(); tp.y += target.height * 0.5;
-            ctx.effects.beam(ctx.muzzle(), tp, { color: 0xffd76a, radius: 0.09, life: 0.3 });
-            const pull = _v1.copy(ctx.player.position).sub(target.position);
-            const dist = pull.length();
-            pull.normalize().multiplyScalar(Math.min(dist * 2.2, 34)).y = 6;
-            ctx.dealDamage(target, 14, { knockback: pull });
-            ctx.effects.impactBurst(tp, { color: 0xffe9a8, size: 1.8 });
-            target.aggro = true;
-          }
-          ctx.game.hitstop(0.03);
-          ctx.shake(0.1);
-          ctx.audio?.play('pull');
-        },
-      },
-      {
-        slot: 'R', name: 'Battle Roar', cooldown: 12, chargeable: true,
-        desc: 'Taunt everything near and raise a golden overshield around yourself.',
-        execute(ctx, state) {
-          const p = ctx.chargePower || 0;
-          const c = ctx.player.position.clone();
-          for (const e of ctx.sphereHit(c, 20)) e.aggro = true;
-          ctx.player.grantShield(28 + 22 * p, 7);
-          state.drT = 1.5;
-          ctx.effects.glow(c.clone().add(_v1.set(0, 1.3, 0)), { color: 0xffd76a, size: 3.5, life: 0.5, grow: 3 });
-          ctx.effects.ring(c, { color: 0xffd76a, endRadius: 20, life: 0.6, thickness: 0.4, opacity: 0.5 });
-          ctx.game.hitstop(0.05);
-          ctx.shake(0.3);
-          ctx.audio?.play('roar');
-        },
-      },
-      {
-        slot: 'F', name: 'Bulwark Dome', cooldown: 16, chargeable: true,
-        desc: 'A dome that blocks enemy shots, slows enemies inside, and heals you.',
-        execute(ctx) {
-          const p = ctx.chargePower || 0;
-          ctx.game.spawnDome(ctx.player.position.clone(), 6 + 2.5 * p, 6 + 3 * p);
-          const c = ctx.player.position.clone(); c.y += 1.2;
-          ctx.effects.impactBurst(c, { color: 0xffe9a8, size: 3.5 });
-          ctx.effects.burst(c, { count: 24, color: 0xffe9a8, color2: 0xffd76a, speed: 8, size: 0.26, life: 0.5, gravity: -2 });
-          ctx.game.hitstop(0.05);
-          ctx.shake(0.2);
-          ctx.audio?.play('dome');
         },
       },
     ],
@@ -965,10 +1146,10 @@ export const CLASSES = {
           ctx.viewmodel.trigger('cast');
           const dir = ctx.aimDir();
           ctx.projectiles.spawn({
-            pos: ctx.muzzle(), vel: dir.multiplyScalar(46),
+            pos: ctx.muzzle(), vel: dir.multiplyScalar(68),
             damage: 14 * (1 + 0.7 * p), color: 0x9a5fff, coreColor: 0xe0ccff,
             size: 0.7 + 0.35 * p, radius: 0.8 + 0.4 * p,
-            knockback: 5, pierce: true, life: 0.7, gravity: 0,
+            knockback: 5, pierce: true, life: 0.6, gravity: 0,
             slow: 2.5 + 1.5 * p, poison: voidPoison(),
             trailEvery: 0.01,
           });
@@ -1011,4 +1192,4 @@ export const CLASSES = {
   },
 };
 
-export const CLASS_LIST = ['mage', 'brawler', 'reaver', 'warden', 'assassin'];
+export const CLASS_LIST = ['mage', 'brawler', 'reaver', 'sorcerer', 'assassin'];

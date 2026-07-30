@@ -35,7 +35,7 @@ export class Projectiles {
     color = 0xffaa44, coreColor = 0xffffff, size = 0.4,
     gravity = 0, life = 3.5, aoe = 0, aoeDamage = null, pierce = false,
     homing = 0, homingTarget = null, knockback = 6, trailEvery = 0.018,
-    onImpact = null, freeze = 0, poison = null, slow = 0,
+    onImpact = null, freeze = 0, poison = null, slow = 0, explodeOnExpire = false,
   }) {
     const group = new THREE.Group();
     const core = new THREE.Mesh(
@@ -57,7 +57,7 @@ export class Projectiles {
       pos: pos.clone(), vel: vel.clone(), owner, damage, radius, color,
       gravity, life, aoe, aoeDamage, pierce, homing, homingTarget, knockback,
       mesh: group, trailTimer: 0, trailEvery, onImpact, freeze, poison, slow,
-      hitSet: pierce ? new Set() : null, dead: false,
+      explodeOnExpire, hitSet: pierce ? new Set() : null, dead: false,
     });
 
     if (this.onSpawn && owner === 'player') {
@@ -69,7 +69,12 @@ export class Projectiles {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const p = this.list[i];
       p.life -= dt;
-      if (p.life <= 0 || p.dead) { this._remove(i); continue; }
+      if (p.life <= 0 || p.dead) {
+        // range-detonating shots (Purple Nuke) blow up where they fizzle
+        if (p.life <= 0 && p.explodeOnExpire) this._impact(p, enemies, player);
+        this._remove(i);
+        continue;
+      }
 
       // homing steer
       if (p.homing > 0) {

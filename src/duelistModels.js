@@ -254,49 +254,42 @@ function buildReaver() {
   });
 }
 
-// ---- Stone Warden: heavy armor, tower greatsword + emblem shield ----
-function buildWarden() {
+// ---- Sorcerer: dark high-collar uniform, white hair, blindfold, bare fists ----
+function buildSorcerer() {
   return buildHumanoid({
-    bulk: 1.35, metal: 0.55,
-    coat: 0x6e6552, pants: 0x544c3e, boots: 0x3a352c, belt: 0x8a7a5a,
-    pads: 0x8f8163, skin: 0xc9a075, cape: 0x4a4436, accent: 0xffd76a,
+    bulk: 0.95, metal: 0,
+    coat: 0x1b1e2e, pants: 0x161826, boots: 0x101218, belt: 0x232637,
+    pads: 0x1b1e2e, skin: 0xe8c39a, cape: 0x14161f, accent: 0x8f5bff,
   }, (g, parts, materials, cfg) => {
-    // full helm with slit visor
-    const helm = shadow(new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.3, 6), mat(0x8f8163, { metal: 0.6, rough: 0.4 }, materials)));
-    helm.position.y = 0.08;
-    parts.head.add(helm);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.045, 0.05), mat(0xffd76a, { emissive: 0xffc23a, ei: 2.6 }, materials));
-    visor.position.set(0, 0.05, 0.18);
-    parts.head.add(visor);
-    // greatsword
-    const sword = new THREE.Group();
-    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 6), mat(0x3a352c, { rough: 0.8 }, materials));
-    sword.add(grip);
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.07), mat(0x8a7a5a, { metal: 0.6, rough: 0.4 }, materials));
-    guard.position.y = 0.17;
-    sword.add(guard);
-    const bladeMat = mat(0xd9cba8, { metal: 0.7, rough: 0.3 }, materials);
-    const blade = shadow(new THREE.Mesh(new THREE.BoxGeometry(0.13, 1.15, 0.035), bladeMat));
-    blade.position.y = 0.76;
-    sword.add(blade);
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.15, 0.05), mat(0xffd76a, { emissive: 0xdd9922, ei: 1.4 }, materials));
-    edge.position.set(0.07, 0.76, 0);
-    sword.add(edge);
-    sword.position.set(0, -0.5, 0.08);
-    sword.rotation.x = -0.3;
-    parts.armR.add(sword);
-    parts.weapon = sword;
-    // shield on the left forearm
-    const shield = shadow(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.06, 6), mat(0x7a6e52, { metal: 0.5, rough: 0.5 }, materials)));
-    shield.rotation.z = Math.PI / 2;
-    shield.position.set(-0.1, -0.35, 0);
-    parts.armL.add(shield);
-    const boss = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), mat(0xffd76a, { emissive: 0xffc23a, ei: 1.8 }, materials));
-    boss.scale.x = 0.5;
-    boss.position.set(-0.15, -0.35, 0);
-    parts.armL.add(boss);
-    parts.cape = mkCape(cfg, materials, 1.2);
-    parts.chest.add(parts.cape);
+    // shock of white hair: spiky cones sweeping up and back
+    const hairMat = mat(0xeef4ff, { rough: 0.95, emissive: 0x445066, ei: 0.25 }, materials);
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      const spike = shadow(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22 + (i % 3) * 0.05, 5), hairMat));
+      spike.position.set(Math.cos(a) * 0.1, 0.16, Math.sin(a) * 0.1 - 0.03);
+      spike.rotation.z = Math.cos(a) * 0.55;
+      spike.rotation.x = -Math.sin(a) * 0.55 - 0.12;
+      parts.head.add(spike);
+    }
+    const tuft = new THREE.Mesh(new THREE.SphereGeometry(0.15, 7, 5), hairMat);
+    tuft.position.set(0, 0.13, -0.02);
+    tuft.scale.set(1.15, 0.7, 1.1);
+    parts.head.add(tuft);
+    // black blindfold band over the eyes
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.085, 10, 1, true), mat(0x0a0a10, { rough: 0.9 }, materials));
+    band.position.y = 0.035;
+    parts.head.add(band);
+    // high uniform collar around the neck
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 0.16, 7), mat(0x1b1e2e, {}, materials));
+    collar.position.y = 0.72;
+    parts.chest.add(collar);
+    // cursed-energy aura around the right fist (this is the "weapon")
+    const auraMat = mat(0xb28cff, { emissive: 0x8f5bff, ei: 2.2, rough: 0.3 }, materials);
+    const aura = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 1), auraMat);
+    aura.position.y = -0.5;
+    parts.armR.add(aura);
+    parts.glow.push(auraMat);
+    parts.weapon = aura;
   });
 }
 
@@ -357,6 +350,6 @@ export const DUELIST_BUILDERS = {
   mage: buildMage,
   brawler: buildBrawler,
   reaver: buildReaver,
-  warden: buildWarden,
+  sorcerer: buildSorcerer,
   assassin: buildAssassin,
 };

@@ -318,7 +318,7 @@ export class Game {
   resetCombatState() {
     if (!this.combat) return;
     // remove any persistent class objects (rift anchor, focus reticle, ...)
-    for (const key of ['anchor', 'focusMesh']) {
+    for (const key of ['anchor', 'focusMesh', 'blue', 'nuke']) {
       const obj = this.combat.state[key];
       const mesh = obj && obj.mesh ? obj.mesh : obj;
       if (mesh && mesh.isObject3D) {
@@ -331,6 +331,8 @@ export class Game {
     }
     this.combat.state = {};
     this.combat.charging = null;
+    this.combat.lockT = 0;
+    this.player.damageTakenMult = 1;
     for (const k in this.combat.cooldowns) this.combat.cooldowns[k] = 0;
   }
 

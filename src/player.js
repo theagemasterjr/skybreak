@@ -143,6 +143,7 @@ export class Player {
     // the local i-frame window must never eat them (it exists for PvE swarms)
     if (!this.alive || (this.invulnTimer > 0 && !opts.pierceInvuln)) return false;
     amount *= 1 - (this.damageReduction || 0);
+    amount *= this.damageTakenMult || 1;   // sorcerer's nuke channel: 1.5x
     // overshield absorbs first
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
@@ -190,6 +191,7 @@ export class Player {
     this.alive = true;
     this.poisonT = 0;
     this.poisonDps = 0;
+    this.damageTakenMult = 1;
     this.dashCharges = this.maxDashes;
     this.jumpsLeft = 2;
     this.stallTimer = 0;

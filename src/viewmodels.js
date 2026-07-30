@@ -14,7 +14,7 @@ function mat(color, { rough = 0.8, metal = 0, emissive = 0x000000, ei = 1 } = {}
 }
 
 const SKIN = 0xd9a066;
-const SLEEVE = { mage: 0x4a3f7a, brawler: 0x8a2f2a, reaver: 0x274a56, warden: 0x5a5f6b, assassin: 0x2a2a33 };
+const SLEEVE = { mage: 0x4a3f7a, brawler: 0x8a2f2a, reaver: 0x274a56, sorcerer: 0x1b1e2e, assassin: 0x2a2a33 };
 
 function makeHand(sleeveColor) {
   const g = new THREE.Group();
@@ -96,38 +96,25 @@ function buildReaverRig() {
   return { group: g, focus: blade, tint: 0x55ddff };
 }
 
-function buildWardenRig() {
+function buildSorcererRig() {
   const g = new THREE.Group();
-  // sword in right hand
-  const swordHand = makeHand(SLEEVE.warden);
-  const sword = new THREE.Group();
-  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.22, 7), mat(0x4a3524));
-  sword.add(grip);
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.035, 0.06), mat(0xc9a227, { metal: 0.75, rough: 0.35 }));
-  guard.position.y = 0.13;
-  sword.add(guard);
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.95, 0.022), mat(0xd8dee6, { metal: 0.85, rough: 0.25 }));
-  blade.position.y = 0.62;
-  sword.add(blade);
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.053, 0.14, 4), mat(0xd8dee6, { metal: 0.85, rough: 0.25 }));
-  tip.rotation.y = Math.PI / 4;
-  tip.position.y = 1.16;
-  sword.add(tip);
-  sword.rotation.x = 0.5;
-  swordHand.add(sword);
-  g.add(swordHand);
-  // shield on left
-  const shield = new THREE.Group();
-  const face = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.28, 0.06, 6), mat(0x5a6b8a, { metal: 0.5, rough: 0.5 }));
-  face.rotation.x = Math.PI / 2;
-  shield.add(face);
-  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), mat(0xc9a227, { metal: 0.8, rough: 0.3 }));
-  boss.position.z = -0.05;
-  shield.add(boss);
-  shield.position.set(-0.55, 0.02, -0.1);
-  shield.rotation.y = 0.35;
-  g.add(shield);
-  return { group: g, focus: blade, tint: 0xffd76a, shield, sword: swordHand };
+  // two bare hands in dark uniform sleeves; right palm carries a faint
+  // cursed-energy glow that doubles as the cast origin
+  const mk = (side) => {
+    const hand = makeHand(SLEEVE.sorcerer);
+    hand.position.x = side * 0.28;
+    hand.rotation.z = side * -0.1;
+    return hand;
+  };
+  const right = mk(1), left = mk(-1);
+  const spark = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.055, 1),
+    mat(0xd8c2ff, { emissive: 0x8f5bff, ei: 2.6, rough: 0.2 })
+  );
+  spark.position.set(0, 0.02, -0.1);
+  right.add(spark);
+  g.add(right); g.add(left);
+  return { group: g, focus: spark, tint: 0x8f5bff, right, left };
 }
 
 function buildAssassinRig() {
@@ -156,7 +143,7 @@ const BUILDERS = {
   mage: buildMageRig,
   brawler: buildBrawlerRig,
   reaver: buildReaverRig,
-  warden: buildWardenRig,
+  sorcerer: buildSorcererRig,
   assassin: buildAssassinRig,
 };
 

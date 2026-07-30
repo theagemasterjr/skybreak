@@ -39,7 +39,7 @@ Press **CODEX** on the title or pause screen for the full dictionary: every enem
 - **Arcane Mage** — long-range artillery, fragile. Plant a Rift Anchor, bombard from range, snap back to the anchor when rushed.
 - **Iron Brawler** — close-range bruiser. Rocket Charge into their faces, crash down with Meteor Slam, lock a crowd in place with the Hundred Fists flurry (they can't move — neither can you), and blast lines with the Shockwave.
 - **Storm Reaver** — speed skirmisher, fastest class in the sky. Four dashes, and every ability is a way to move: Storm Lunge skewers a line through anyone in your path, Thunderclap instantly stuns everything around you, Cyclone launches you and everyone nearby into the sky together, and Slipstream is free flight that drags anyone you touch along with you. Falls a little slower than everyone else.
-- **Warden** — the bulwark, highest health in the game. Yank enemies in with Chain Pull, shove them off the island with Aegis Bash, roar up an overshield.
+- **Sorcerer** — the limitless duelist. Red snipes across the whole arena, Blue is a huge slow orb that sucks everyone into its core and holds them there (no dashing out), Black Flash is a crackling point-blank detonation, and Purple Nuke roots you for 3 vulnerable seconds before erasing everything in a straight line.
 - **Shadow Assassin** — fragile hit-and-run, and every attack seeps void poison. Shadowstep dashes in, slices hard, and pulls you back out; Void Slash slows runners; Eviscerate is a three-hit combo — a dash-slice that, if it connects, uppercuts the victim into the sky with you and ends with a slash that hurls them away for brutal damage.
 
 ## Enemy field guide

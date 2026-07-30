@@ -15,7 +15,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // Master switch: set to false to instantly revert players to the old
 // procedural models (duelistModels.js and viewmodels.js are still intact).
-export const USE_GLB_CHAMPIONS = true;
+export const USE_GLB_CHAMPIONS = false;
 
 const FILES = {
   mage:     'arcane-mage',
@@ -43,6 +43,7 @@ const HANDS = {
 export const CHAMPION_ASSETS = {};
 
 export function preloadChampionModels() {
+  if (!USE_GLB_CHAMPIONS) return Promise.resolve();   // old models: skip the downloads
   const loader = new GLTFLoader();
   return Promise.all(Object.entries(FILES).map(([classId, name]) =>
     new Promise((resolve) => {
