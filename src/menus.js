@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CLASSES, CLASS_LIST } from './classes.js';
 import { ENEMY_TYPES, ENEMY_INFO } from './enemies.js';
 import { MODEL_BUILDERS } from './enemyModels.js';
-import { getSensMult, setSensMult } from './settings.js';
+import { getSensMult, setSensMult, getAimSensMult, setAimSensMult } from './settings.js';
 
 // ---------------------------------------------------------------------------
 // Menus: main title, class select, pause, death, and codex screens.
@@ -49,8 +49,9 @@ export class Menus {
     };
     this._codexFrom = 'main';   // screen to return to when the codex closes
 
-    // mouse sensitivity slider on the main menu and every pause screen
+    // mouse sensitivity sliders on the main menu and every pause screen
     this._sensControls = [];
+    this._aimControls = [];
     for (const name of ['main', 'pause', 'duelpause', 'mppause']) {
       this._addSensControl(this.screens[name]);
     }
@@ -59,27 +60,36 @@ export class Menus {
   }
 
   _addSensControl(screen) {
-    const pct = Math.round(getSensMult() * 100);
+    const content = screen.querySelector('.menu-content');
+    this._addSliderRow(content, this._sensControls, 'MOUSE SENSITIVITY', 10, 300,
+      Math.round(getSensMult() * 100), (v) => {
+        setSensMult(v / 100);
+        this.game.player?.applySensitivity();
+      });
+    this._addSliderRow(content, this._aimControls, 'AIM SENSITIVITY · HOLD RMB', 10, 100,
+      Math.round(getAimSensMult() * 100), (v) => setAimSensMult(v / 100));
+  }
+
+  _addSliderRow(content, list, labelText, min, max, pct, apply) {
     const row = document.createElement('div');
     row.className = 'sens-row';
     row.innerHTML = `
-      <label>MOUSE SENSITIVITY <b>${pct}%</b></label>
-      <input type="range" min="10" max="300" step="5" value="${pct}" aria-label="Mouse sensitivity">
+      <label>${labelText} <b>${pct}%</b></label>
+      <input type="range" min="${min}" max="${max}" step="5" value="${pct}" aria-label="${labelText}">
     `;
     const slider = row.querySelector('input');
     const label = row.querySelector('b');
     slider.addEventListener('keydown', (e) => e.stopPropagation());
     slider.addEventListener('input', () => {
       const v = Number(slider.value);
-      setSensMult(v / 100);
-      this.game.player?.applySensitivity();
-      for (const c of this._sensControls) {
+      apply(v);
+      for (const c of list) {
         c.slider.value = v;
         c.label.textContent = v + '%';
       }
     });
-    screen.querySelector('.menu-content').appendChild(row);
-    this._sensControls.push({ slider, label });
+    content.appendChild(row);
+    list.push({ slider, label });
   }
 
   _buildMain() {
@@ -99,6 +109,7 @@ export class Menus {
         <div class="controls-hint">
           <span><b>WASD</b> move</span><span><b>SPACE</b> double&nbsp;jump</span>
           <span><b>SHIFT</b> air&nbsp;dash</span><span><b>MOUSE</b> attack</span>
+          <span><b>RMB</b> steady&nbsp;aim</span>
           <span><b>Q&nbsp;E&nbsp;R&nbsp;F</b> abilities&nbsp;·&nbsp;hold&nbsp;to&nbsp;charge&nbsp;◈</span>
         </div>
       </div>

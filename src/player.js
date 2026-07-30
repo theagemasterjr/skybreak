@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clamp, damp, lerp } from './utils.js';
 import { World } from './world.js';
-import { getSensMult } from './settings.js';
+import { getSensMult, getAimSensMult } from './settings.js';
 
 // ---------------------------------------------------------------------------
 // Player: first-person aerial movement controller.
@@ -221,8 +221,10 @@ export class Player {
     const [dx, dy] = this.input.consumeLook();
     this.lastLookDX = dx;
     this.lastLookDY = dy;
-    this.yaw -= dx * this.sensitivity;
-    this.pitch = clamp(this.pitch - dy * this.sensitivity, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
+    // holding right click steadies the aim: look speed drops to the aim fraction
+    const sens = this.sensitivity * (this.input.altDown() ? getAimSensMult() : 1);
+    this.yaw -= dx * sens;
+    this.pitch = clamp(this.pitch - dy * sens, -Math.PI / 2 + 0.02, Math.PI / 2 - 0.02);
 
     // ---- timers ----
     this.coyote = this.grounded ? 0.12 : Math.max(0, this.coyote - dt);
