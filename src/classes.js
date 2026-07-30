@@ -82,6 +82,24 @@ function buildBlueOrb() {
   g.add(ring);
   const light = new THREE.PointLight(0x4488ff, 8, 20, 2);
   g.add(light);
+  const pull = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 32, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x4488ff, transparent: true, opacity: 0.05,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  pull.name = 'pullRadius';
+  g.add(pull);
+  const pullEdge = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 32, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x66aaff, transparent: true, opacity: 0.1, wireframe: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  pullEdge.name = 'pullRadiusEdge';
+  g.add(pullEdge);
   return g;
 }
 
@@ -90,7 +108,7 @@ function buildPurpleOrb() {
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(1.0, 24, 18),
     new THREE.MeshBasicMaterial({
-      color: 0xa64dff, transparent: true, opacity: 0.4,
+      color: 0xa64dff, transparent: true, opacity: 0.14,
       blending: THREE.AdditiveBlending, depthWrite: false,
     })
   );
@@ -98,7 +116,7 @@ function buildPurpleOrb() {
   const core = new THREE.Mesh(
     new THREE.SphereGeometry(0.45, 16, 12),
     new THREE.MeshBasicMaterial({
-      color: 0xf0e0ff, transparent: true, opacity: 0.95,
+      color: 0xf0e0ff, transparent: true, opacity: 0.35,
       blending: THREE.AdditiveBlending, depthWrite: false,
     })
   );
@@ -672,8 +690,7 @@ export const CLASSES = {
       if (state.blue) {
         const B = state.blue;
         B.t -= dt;
-        // glides forward then anchors in place
-        B.vel.multiplyScalar(Math.exp(-1.5 * dt));
+        // drifts forward at constant speed for its whole lifetime
         B.pos.addScaledVector(B.vel, dt);
         B.mesh.position.copy(B.pos);
         B.mesh.rotation.y += dt * 1.6;
@@ -823,7 +840,7 @@ export const CLASSES = {
       },
       {
         slot: 'E', name: 'Blue', cooldown: 12, chargeable: true,
-        desc: 'Attractive force: a huge slow orb that drags everyone nearby into its core and holds them there — no dashing out. Charge for a wider, longer pull.',
+        desc: 'Attractive force: a huge drifting orb that drags everyone nearby into its core and holds them there — no dashing out. Charge for a wider, longer pull.',
         execute(ctx, state) {
           if (state.blue) return false;   // one singularity at a time
           const p = ctx.chargePower || 0;
@@ -833,9 +850,12 @@ export const CLASSES = {
           mesh.position.copy(pos);
           ctx.game.scene.add(mesh);
           state.blue = {
-            pos, vel: dir.multiplyScalar(9),
+            pos, vel: dir.multiplyScalar(14),
             t: 3.5 + 1.5 * p, r: 8 + 2.5 * p, tick: 0, mesh,
           };
+          const rr = state.blue.r;
+          mesh.getObjectByName('pullRadius').scale.setScalar(rr);
+          mesh.getObjectByName('pullRadiusEdge').scale.setScalar(rr);
           ctx.viewmodel.trigger('cast');
           ctx.effects.ring(pos.clone(), { color: 0x4488ff, endRadius: 3, life: 0.3, axis: 'x', thickness: 0.3 });
           ctx.audio?.play('charge');
