@@ -504,6 +504,26 @@ export class Player {
       }
     }
 
+    // ---- graviton plates: land on the pulling face ----
+    for (const pl of this.world.gravPlates || []) {
+      _v1.copy(this.position).sub(pl.center);
+      const h = _v1.dot(pl.normal);
+      const lx = _v1.dot(pl.t1), lz = _v1.dot(pl.t2);
+      if (Math.abs(lx) > pl.w / 2 + 0.2 || Math.abs(lz) > pl.d / 2 + 0.2) continue;
+      if (h > 0.42 || h < -0.6) continue;
+      // snap feet onto the slab's top face (half-thickness 0.35)
+      this.position.addScaledVector(pl.normal, 0.37 - h);
+      const into = this.vel.dot(pl.normal);
+      if (into < 0) {
+        this.vel.addScaledVector(pl.normal, -into);
+        if (into < -9 && !this.grounded && this.onLand) this.onLand(-into);
+      }
+      this.grounded = true;
+      this._onRock = true;
+      this.jumpsLeft = 2;
+      this.recoverAssistUsed = false;
+    }
+
     // ---- void recovery ----
     this.inRecoverZone = this.position.y < -45;
     if (this.inRecoverZone && !this.recoverAssistUsed) {

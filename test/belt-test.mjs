@@ -37,6 +37,25 @@ let mul = belt.gravityAt(new THREE.Vector3(0, 200, 0), dir);
 if (dir.distanceTo(new THREE.Vector3(0, -1, 0)) > 1e-6) fail(`far gravity dir ${dir.toArray()}`);
 if (Math.abs(mul - 0.45) > 1e-9) fail(`belt gravity mul ${mul}`);
 
+// (a2) at a rock's surface the pull ramps up hard (jump-proof strength)
+{
+  const rk0 = MAP_DEFS.belt.gravRocks[0];
+  const m = belt.gravityAt(new THREE.Vector3(rk0.x + rk0.r + 0.2, rk0.y, rk0.z), dir);
+  if (m < 0.45 * 3.5) fail(`near-surface pull too weak: ${m}`);
+}
+
+// (a3) plate fields: one-directional gravity onto the face
+{
+  const pl = belt.gravPlates[0];
+  const probe = pl.center.clone().addScaledVector(pl.normal, 5);
+  belt.gravityAt(probe, dir);
+  if (dir.angleTo(pl.normal.clone().negate()) > 0.01) fail(`plate gravity not anti-normal: ${dir.toArray()}`);
+  // below/behind the plate: field does not reach
+  const behind = pl.center.clone().addScaledVector(pl.normal, -3);
+  belt.gravityAt(behind, dir);
+  if (dir.angleTo(pl.normal.clone().negate()) < 0.01) fail('plate field leaks behind the face');
+}
+
 // (b) right beside a rock surface: gravity points at its center
 const rk = MAP_DEFS.belt.gravRocks[0];
 const probe = new THREE.Vector3(rk.x + rk.r + 0.5, rk.y, rk.z);
@@ -57,6 +76,42 @@ ok('gravity field (far + near rock)');
   const radial = p.position.clone().sub(new THREE.Vector3(rk.x, rk.y, rk.z)).normalize();
   if (p.up.angleTo(radial) > 0.25) fail(`up not radial: ${p.up.angleTo(radial)} rad`);
   ok('rock capture: lands, stands, up is radial');
+}
+
+// (c2) jumping off a rock cannot escape its field — you fall back
+{
+  const p = new Player(belt, camStub, inputStub);
+  const center = new THREE.Vector3(rk.x, rk.y, rk.z);
+  p.position.set(rk.x + rk.r + 0.01, rk.y, rk.z);
+  p.vel.set(0, 0, 0);
+  for (let i = 0; i < 120; i++) p.update(1 / 60, i / 60);   // settle onto the surface
+  if (!p._onRock) fail('escape test: never settled on the rock');
+  // simulate a full jump straight off the surface
+  p.vel.copy(p.up).multiplyScalar(13);
+  p.grounded = false;
+  let maxD = 0;
+  for (let i = 0; i < 400; i++) {
+    p.update(1 / 60, 2 + i / 60);
+    maxD = Math.max(maxD, p.position.distanceTo(center));
+  }
+  const influence = rk.r + 10;
+  if (maxD > influence) fail(`jump escaped the field: reached ${maxD.toFixed(1)} vs influence ${influence}`);
+  if (!p._onRock) fail('jump test: did not fall back onto the rock');
+  ok('rock fields are jump-proof (dash-only escape)');
+}
+
+// (c3) a player above a plate lands on its face, up aligned to the normal
+{
+  const pl = belt.gravPlates[0];
+  const p = new Player(belt, camStub, inputStub);
+  p.position.copy(pl.center).addScaledVector(pl.normal, 6);
+  p.vel.set(0, 0, 0);
+  for (let i = 0; i < 400; i++) p.update(1 / 60, i / 60);
+  if (!p.grounded || !p._onRock) fail(`plate landing failed (grounded=${p.grounded})`);
+  const h = p.position.clone().sub(pl.center).dot(pl.normal);
+  if (Math.abs(h - 0.37) > 0.1) fail(`plate landing height ${h.toFixed(2)} != ~0.37`);
+  if (p.up.angleTo(pl.normal) > 0.25) fail(`plate up not aligned: ${p.up.angleTo(pl.normal)} rad`);
+  ok('plate capture: lands on the face, up follows the normal');
 }
 
 // (d) classic parity: vector gravity == old scalar gravity away from rocks

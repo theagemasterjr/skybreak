@@ -53,6 +53,12 @@ export class World {
     this.crystals = [];     // pulsing emissive materials
     this.cloudGroup = null;
     this.time = 0;
+    // world clock: drives platform bob/orbit. Advanced with UNSCALED dt via
+    // advanceClocks so local hitstop never desyncs moving ground between
+    // multiplayer clients (every client builds the world at round start, so
+    // clocks line up), and a paused solo game freezes with it.
+    this.clock = 0;
+    this.fieldFx = [];      // animated field visuals: {update(dt, clock)}
 
     // hazards: seeded, deterministic, driven by hazardClock (reset each round)
     this._game = null;      // set by Game.loadMap before resetHazards
@@ -67,10 +73,19 @@ export class World {
     this._buildClouds();
     this._buildMotes();
     this.gravRocks = [];    // graviton rocks: bend player gravity toward them
+    this.gravPlates = [];   // graviton plates: one-directional gravity faces
     if (mapDef.gravRocks) this._buildGravRocks();
+    if (mapDef.gravPlates) this._buildGravPlates();
     if (mapDef.build) mapDef.build(this, this.root, mulberry32(50));
 
     this.soloSpawn = new THREE.Vector3(...mapDef.spawns.solo);
+  }
+
+  // called from Game.tick BEFORE hitstop scaling — see clock comment above
+  advanceClocks(rawDt, state) {
+    if (state === 'paused') return;
+    this.clock += rawDt;
+    if (this.hazards && state === 'playing') this.hazardClock += rawDt;
   }
 
   resetHazards(seed = 1) {
@@ -102,6 +117,8 @@ export class World {
         if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
         else o.material.dispose();
       }
+      // lights hold GPU shadow-map render targets — freed only by dispose()
+      if (o.isLight && o.dispose) o.dispose();
     });
   }
 
@@ -267,8 +284,10 @@ export class World {
     return island.topY - (island.depth || 15) * 0.85 * taper;
   }
 
-  // platform center at a given time (orbiting platforms circle a point)
-  platformPosAt(p, time, out = {}) {
+  // platform center at a given time (orbiting platforms circle a point).
+  // Timing runs on world.clock — synced across multiplayer clients — not on
+  // the caller-supplied sim time (which counts from page load, per client).
+  platformPosAt(p, time = this.clock, out = {}) {
     if (p.orbit) {
       const a = p.orbit.phase + time * p.orbit.angSpeed;
       out.x = p.orbit.cx + Math.cos(a) * p.orbit.r;
@@ -279,11 +298,11 @@ export class World {
     return out;
   }
 
-  platformHeightAt(p, x, z, time) {
-    const pos = this.platformPosAt(p, time, _pp);
+  platformHeightAt(p, x, z /* , time: ignored, clock rules */) {
+    const pos = this.platformPosAt(p, this.clock, _pp);
     const dx = x - pos.x, dz = z - pos.z;
     if (Math.hypot(dx, dz) > p.R) return null;
-    return this.platformY(p, time) + 0.35 * (1 - (dx * dx + dz * dz) / (p.R * p.R));
+    return this.platformY(p) + 0.35 * (1 - (dx * dx + dz * dz) / (p.R * p.R));
   }
 
   // If an orbiting platform sits under (x,z) at foot height, write its
@@ -292,18 +311,18 @@ export class World {
     let best = null, bestY = -Infinity;
     for (const p of this.platforms) {
       if (!p.orbit) continue;
-      const y = this.platformHeightAt(p, x, z, time);
+      const y = this.platformHeightAt(p, x, z);
       if (y === null || Math.abs(y - feetY) > 0.6) continue;
       if (y > bestY) { bestY = y; best = p; }
     }
     if (!best) return false;
-    const a = this.platformPosAt(best, time, _pp);
-    const b = this.platformPosAt(best, time - dt, _pp2);
+    const a = this.platformPosAt(best, this.clock, _pp);
+    const b = this.platformPosAt(best, this.clock - dt, _pp2);
     out.set(a.x - b.x, 0, a.z - b.z);
     return true;
   }
 
-  platformY(p, time) {
+  platformY(p, time = this.clock) {
     return p.baseY + Math.sin(time * p.speed + p.phase) * p.amp;
   }
 
@@ -343,7 +362,7 @@ export class World {
       };
       this.islands.push(island);
 
-      const geo = buildIslandGeometry(island, d.depth, d.seed, !!d.bare, this.palette);
+      const geo = buildIslandGeometry(island, d.depth, d.seed, { bare: !!d.bare }, this.palette);
       const mesh = new THREE.Mesh(geo, islandMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -377,7 +396,15 @@ export class World {
     // rocks
     for (let i = 0; i < (d.rocks || 0); i++) {
       const p = placeOnIsland(0.92);
-      this.root.add(makeRock(rng, p, this.palette));
+      const rock = makeRock(rng, p, this.palette);
+      this.root.add(rock);
+      // maps can opt into solid boulders (belt: bigger rocks, fewer bushes)
+      if (this.mapDef.solidRocks && rock.userData.r > 0.7) {
+        this.columns.push({
+          x: p.x, z: p.z, r: rock.userData.r * 0.85,
+          yBottom: p.y - 1, yTop: p.y + rock.userData.r * 0.8,
+        });
+      }
     }
     // crystals
     for (let i = 0; i < (d.crystals || 0); i++) {
@@ -468,9 +495,10 @@ export class World {
         amp: def.amp ?? randRange(rng, 0.7, 1.4),
         speed: def.speed ?? randRange(rng, 0.35, 0.7),
         phase: def.phase ?? rng() * Math.PI * 2,
+        orbit: def.orbit,   // orbiting platforms circle a center point
       };
       const island = { x: 0, z: 0, topY: 0, R, domeH: 0.35, edgeSeed: def.seed ?? Math.floor(rng() * 1000) };
-      const geo = buildIslandGeometry(island, R * 2.2, island.edgeSeed, true, this.palette);
+      const geo = buildIslandGeometry(island, R * 2.2, island.edgeSeed, { bare: true, local: true }, this.palette);
       const mesh = new THREE.Mesh(geo, rockMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -563,14 +591,126 @@ export class World {
       const light = new THREE.PointLight(0x55e8ff, 8, def.r * 5, 2);
       light.position.copy(center);
       this.root.add(light);
+
+      this._addFieldShell(center, this.gravRocks[this.gravRocks.length - 1].influence, 0x55e8ff, rng);
+    }
+  }
+
+  // sparse particle shell marking the exact reach of a rock's gravity field
+  _addFieldShell(center, radius, color, rng) {
+    const N = 34;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const u = rng() * 2 - 1, a = rng() * Math.PI * 2;
+      const s = Math.sqrt(1 - u * u);
+      pos[i * 3] = Math.cos(a) * s * radius;
+      pos[i * 3 + 1] = u * radius;
+      pos[i * 3 + 2] = Math.sin(a) * s * radius;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+      map: makeGlowTexture(), color, size: 0.4, transparent: true, opacity: 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    }));
+    pts.position.copy(center);
+    this.root.add(pts);
+    const spin = 0.1 + rng() * 0.12;
+    this.fieldFx.push({ update: (dt) => { pts.rotation.y += dt * spin; } });
+  }
+
+  // graviton plates: flat purple slabs whose gravity pulls one way — onto
+  // their face — inside a box-shaped field extending along their normal
+  _buildGravPlates() {
+    const rng = mulberry32(6060);
+    const FIELD_H = 12;
+    for (const def of this.mapDef.gravPlates) {
+      const e = new THREE.Euler(def.tilt || 0, def.yaw || 0, 0, 'YXZ');
+      const normal = new THREE.Vector3(0, 1, 0).applyEuler(e);
+      const t1 = new THREE.Vector3(1, 0, 0).applyEuler(e);
+      const t2 = new THREE.Vector3(0, 0, 1).applyEuler(e);
+      const center = new THREE.Vector3(def.x, def.y, def.z);
+      this.gravPlates.push({ center, normal, t1, t2, w: def.w, d: def.d, fieldH: FIELD_H });
+
+      const slab = new THREE.Mesh(
+        new THREE.BoxGeometry(def.w, 0.7, def.d),
+        new THREE.MeshStandardMaterial({
+          color: 0x7a3aff, emissive: 0x4a1e9a, emissiveIntensity: 0.7,
+          roughness: 0.5, metalness: 0.15, flatShading: true,
+        })
+      );
+      slab.position.copy(center);
+      slab.rotation.copy(e);
+      slab.castShadow = true;
+      slab.receiveShadow = true;
+      this.root.add(slab);
+      // glowing top face
+      const face = new THREE.Mesh(
+        new THREE.PlaneGeometry(def.w * 0.94, def.d * 0.94),
+        new THREE.MeshBasicMaterial({
+          color: 0xa060ff, transparent: true, opacity: 0.22,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        })
+      );
+      face.rotation.x = -Math.PI / 2;
+      face.position.y = 0.37;
+      slab.add(face);
+      const light = new THREE.PointLight(0xa060ff, 9, FIELD_H + def.w, 2);
+      light.position.copy(center).addScaledVector(normal, 2);
+      this.root.add(light);
+
+      // field particles: drift down the field column toward the face,
+      // sketching both the field's reach and which way it pulls
+      const N = 26;
+      const pos = new Float32Array(N * 3);
+      const parts = Array.from({ length: N }, () => ({
+        lx: (rng() - 0.5) * def.w, lz: (rng() - 0.5) * def.d, h: rng() * FIELD_H,
+      }));
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+        map: makeGlowTexture(), color: 0xb070ff, size: 0.38, transparent: true, opacity: 0.55,
+        blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+      }));
+      this.root.add(pts);
+      const plate = this.gravPlates[this.gravPlates.length - 1];
+      this.fieldFx.push({
+        update: (dt) => {
+          const attr = pts.geometry.attributes.position;
+          for (let i = 0; i < N; i++) {
+            const part = parts[i];
+            part.h -= dt * 2.2;
+            if (part.h < 0.4) part.h = FIELD_H;
+            _gv.copy(plate.center)
+              .addScaledVector(plate.t1, part.lx)
+              .addScaledVector(plate.t2, part.lz)
+              .addScaledVector(plate.normal, part.h);
+            attr.setXYZ(i, _gv.x, _gv.y, _gv.z);
+          }
+          attr.needsUpdate = true;
+        },
+      });
     }
   }
 
   // Local gravity at a position: writes the (unit) direction into out and
   // returns the strength multiplier. Near a graviton rock, "down" bends
-  // smoothly toward the rock's center; elsewhere it's plain world-down.
+  // toward the rock's center and the pull RAMPS UP hard — you can walk and
+  // jump all you like inside a field, only a dash truly breaks you out.
+  // Graviton plates pull one way only: onto their face.
   gravityAt(pos, out) {
+    const mul = this.mapDef.env.gravityMul ?? 1;
     out.set(0, -1, 0);
+    // plates claim their box-shaped field outright
+    for (const pl of this.gravPlates) {
+      _gv.copy(pos).sub(pl.center);
+      const h = _gv.dot(pl.normal);
+      if (h < -0.2 || h > pl.fieldH) continue;
+      if (Math.abs(_gv.dot(pl.t1)) > pl.w / 2 + 2 || Math.abs(_gv.dot(pl.t2)) > pl.d / 2 + 2) continue;
+      out.copy(pl.normal).negate();
+      const t = 1 - Math.max(0, h) / pl.fieldH;
+      return mul * (1 + 3.5 * t);
+    }
     let best = null, bestD = Infinity;
     for (const rk of this.gravRocks) {
       const d = pos.distanceTo(rk.center);
@@ -580,8 +720,9 @@ export class World {
       _gv.copy(best.center).sub(pos).normalize();
       const t = 1 - Math.max(0, (bestD - best.r) / (best.influence - best.r));
       out.lerp(_gv, t).normalize();
+      return mul * (1 + 3.5 * t);
     }
-    return this.mapDef.env.gravityMul ?? 1;
+    return mul;
   }
 
   // ---- per-frame update ----
@@ -593,16 +734,18 @@ export class World {
       s.position.x = Math.cos(s.userData.angle) * s.userData.dist;
       s.position.z = Math.sin(s.userData.angle) * s.userData.dist;
     }
-    // platforms bob (and orbit)
+    // platforms bob (and orbit) on the synced world clock
     for (const p of this.platforms) {
       if (!p.mesh) continue;
-      p.mesh.position.y = this.platformY(p, time);
+      p.mesh.position.y = this.platformY(p);
       if (p.orbit) {
-        const pos = this.platformPosAt(p, time, _pp);
+        const pos = this.platformPosAt(p, this.clock, _pp);
         p.mesh.position.x = pos.x;
         p.mesh.position.z = pos.z;
       }
     }
+    // animated gravity-field visuals (belt map)
+    for (const f of this.fieldFx) f.update(dt, this.clock);
     // crystals pulse
     for (let i = 0; i < this.crystals.length; i++) {
       this.crystals[i].emissiveIntensity = 1.6 + Math.sin(time * 2.2 + i * 1.7) * 0.7;
@@ -612,11 +755,9 @@ export class World {
       this.motes.rotation.y += dt * 0.008;
       this.motes.position.y = Math.sin(time * 0.12) * 2.5;
     }
-    // hazards run on their own clock, frozen outside live play so a paused
-    // solo run can't get struck; multiplayer never pauses, so clients stay
-    // in lockstep off the shared round seed
+    // hazards run on hazardClock (advanced separately in advanceClocks with
+    // unscaled dt); frame work here can use the scaled dt for slow-mo juice
     if (this.hazards && this._game?.state === 'playing') {
-      this.hazardClock += dt;
       this.hazards.update(dt);
     }
   }
@@ -642,17 +783,19 @@ function paintGeometry(geo, colorA, colorB, rng, jitter = 0.15) {
 }
 
 // Build one floating island: noisy grass top + tapering rocky underside.
-// Vertices are colored per-face after toNonIndexed for a faceted painterly look.
-function buildIslandGeometry(island, depth, seed, bare = false, palette = DEFAULT_PALETTE) {
+// Vertices are colored per-face after toNonIndexed for a faceted painterly
+// look. opts.bare = rocky top (no grass); opts.local = generate around
+// (0,0) for meshes that get positioned afterwards (stepping-stone platforms).
+// The two are independent: a bare ISLAND still builds in world space.
+function buildIslandGeometry(island, depth, seed, opts = {}, palette = DEFAULT_PALETTE) {
+  const bare = !!opts.bare;
+  const isPlatform = !!opts.local;
   const segs = Math.max(20, Math.floor(island.R * 2.2));
   const topRings = 5;
   const underRings = 6;
   const positions = [];
   const localX = island.x, localZ = island.z;
 
-  // ring vertex helper (positions are generated in local space around 0,0
-  // when bare/platform, else in world space)
-  const isPlatform = bare;
   const px = isPlatform ? 0 : localX;
   const pz = isPlatform ? 0 : localZ;
   const py = isPlatform ? 0 : 0;
@@ -823,7 +966,8 @@ function makeTree(rng, p, palette = DEFAULT_PALETTE) {
 }
 
 function makeRock(rng, p, palette = DEFAULT_PALETTE) {
-  const geo = new THREE.DodecahedronGeometry(randRange(rng, 0.5, 1.5), 0).toNonIndexed();
+  const size = randRange(rng, 0.5, 1.5);
+  const geo = new THREE.DodecahedronGeometry(size, 0).toNonIndexed();
   geo.scale(1, randRange(rng, 0.55, 0.8), 1);
   paintGeometry(geo, palette.rockA, palette.rockB, rng, 0.12);
   const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
@@ -832,6 +976,7 @@ function makeRock(rng, p, palette = DEFAULT_PALETTE) {
   rock.rotation.set(rng() * 0.4, rng() * Math.PI * 2, rng() * 0.4);
   rock.castShadow = true;
   rock.receiveShadow = true;
+  rock.userData.r = size;
   return rock;
 }
 

@@ -58,7 +58,8 @@ for (const id of MAPS) {
     state: 'playing', simTime: 0, enemies: [],
     player: {
       alive: true, position: new THREE.Vector3(0, 200, 0), vel: new THREE.Vector3(),
-      windBoostT: 0, slowFall() {}, takeDamage() {}, applyKnockback() {},
+      windBoostT: 0, invulnTimer: 0,
+      slowFall() {}, takeDamage() {}, applyKnockback() {}, root() {}, shake() {}, heal() {},
     },
     effects: { glow() {}, ring() {}, beam() {}, burst() {}, impactBurst() {} },
     hud: { flash() {} },
@@ -67,7 +68,7 @@ for (const id of MAPS) {
   };
   world._game = fakeGame;
   world.resetHazards(7);
-  for (let i = 0; i < 600; i++) world.update(1 / 60, i / 60);
+  for (let i = 0; i < 600; i++) { world.advanceClocks(1 / 60, 'playing'); world.update(1 / 60, i / 60); }
 
   // hazard determinism: identical seed -> identical first events
   if (def.makeHazards) {
@@ -76,11 +77,23 @@ for (const id of MAPS) {
       world._game = fakeGame;
       world.resetHazards(7);
       world.hazards.log ??= [];   // hazard classes seed this in their constructors
-      for (let i = 0; i < 60 * 45; i++) world.update(1 / 60, i / 60);
+      for (let i = 0; i < 60 * 45; i++) { world.advanceClocks(1 / 60, 'playing'); world.update(1 / 60, i / 60); }
       runs.push(JSON.stringify(world.hazards.log.slice(0, 6)));
     }
     if (runs[0] !== runs[1]) fail(`${id}: hazards not deterministic\n  a=${runs[0]}\n  b=${runs[1]}`);
     else ok(`${id} hazards deterministic ${runs[0]}`);
+  }
+
+  // orbit platforms defined in map data must actually move (regression:
+  // _buildPlatforms once dropped the orbit field on the floor)
+  if (id === 'voidgarden' || id === 'godspire') {
+    if (!world.platforms.some((p) => p.orbit)) fail(`${id}: no orbiting platforms survived the build`);
+  }
+  for (const p of world.platforms) {
+    if (!p.orbit) continue;
+    const a = world.platformPosAt(p, 0, {});
+    const b = world.platformPosAt(p, 15, {});
+    if (Math.hypot(a.x - b.x, a.z - b.z) < 0.5) fail(`${id}: orbit platform frozen in place`);
   }
 
   world.dispose();
@@ -99,16 +112,18 @@ for (const id of MAPS) {
     orbit: { cx: 0, cz: 0, r: 80, angSpeed: 0.5, phase: 0 },
   };
   world.platforms.push(p);
-  // at t=0 the platform sits at (20, 0); ground should exist there
+  // platform timing rides world.clock (the multiplayer-synced clock), so the
+  // test advances THAT rather than passing query times
+  world.clock = 0;
   const y0 = world.groundHeightBelow(80, 0, 12, 0, 1);
-  if (y0 === null) fail('orbit: no ground at t=0 position');
-  // at t=PI (half a lap at 0.5 rad/s -> quarter... a=0.5*t) pick t where a=PI: t=2PI
-  const t2 = Math.PI * 2; // a = PI -> platform at (-20, 0)
-  if (world.groundHeightBelow(-80, 0, 12, t2, 1) === null) fail('orbit: no ground at half-lap position');
-  if (world.groundHeightBelow(80, 0, 12, t2, 1) !== null) fail('orbit: stale ground at old position');
+  if (y0 === null) fail('orbit: no ground at clock=0 position');
+  world.clock = Math.PI * 2;   // a = 0.5 * 2PI = PI -> platform at (-80, 0)
+  if (world.groundHeightBelow(-80, 0, 12, 0, 1) === null) fail('orbit: no ground at half-lap position');
+  if (world.groundHeightBelow(80, 0, 12, 0, 1) !== null) fail('orbit: stale ground at old position');
   // carry delta ~= r * angSpeed * dt tangentially
+  world.clock = 0.016;
   const out = new THREE.Vector3();
-  const carried = world.platformCarry(80, 0, y0, 0.016 + 0, 0.016, out);
+  const carried = world.platformCarry(80, 0, y0, 0, 0.016, out);
   if (!carried) fail('orbit: carry not detected');
   const expected = 80 * 0.5 * 0.016;
   if (Math.abs(out.length() - expected) > expected * 0.2) {

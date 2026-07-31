@@ -20,7 +20,7 @@
 const afterCast = (slot, window) => (g, d, T) => T.castWithin(slot, window);
 // as above, but the cast must have been fully charged
 const afterFullCast = (slot, window) => (g, d, T) =>
-  T.castWithin(slot, window) && T.lastCast.power >= 0.99;
+  T.castWithin(slot, window) && T.casts[slot].power >= 0.99;
 
 export const TUTORIAL_SCRIPTS = {
   basics: {
@@ -121,7 +121,9 @@ export class ObjectiveTracker {
     this.g = game;
     this.cbs = cbs;          // { onRender, onStepDone, onComplete }
     this.idx = 0;
-    this.lastCast = { slot: null, t: -999, power: 0 };
+    // per-slot cast records: basic-attack autofire between an ability cast
+    // and its delayed damage (meteor, orbs) must not steal the attribution
+    this.casts = {};         // slot -> { t, power }
     this._resetStep();
   }
 
@@ -129,7 +131,8 @@ export class ObjectiveTracker {
   get done() { return this.idx >= this.script.steps.length; }
 
   castWithin(slot, window) {
-    return this.lastCast.slot === slot && this.g.simTime - this.lastCast.t <= window;
+    const c = this.casts[slot];
+    return !!c && this.g.simTime - c.t <= window;
   }
 
   // "2/3"-style counter for the active step, or null
@@ -160,16 +163,17 @@ export class ObjectiveTracker {
   onEvent(type, data = {}) {
     if (this.done) return;
     if (type === 'cast') {
-      this.lastCast = { slot: data.slot, t: this.g.simTime, power: data.power || 0 };
+      this.casts[data.slot] = { t: this.g.simTime, power: data.power || 0 };
     }
     const s = this.step;
     if (!s || s.on !== type) return;
     if (s.when && !s.when(this.g, data, this)) return;
     if (s.two) {
       if (!this.castWithin(s.two.slot, s.two.window)) return;
-      if (this._twoCastT !== this.lastCast.t) {   // each new cast starts fresh
+      const castT = this.casts[s.two.slot].t;
+      if (this._twoCastT !== castT) {             // each new cast starts fresh
         this.hitSet.clear();
-        this._twoCastT = this.lastCast.t;
+        this._twoCastT = castT;
       }
       this.hitSet.add(data.dummy);
       if (this.hitSet.size >= (s.two.n || 2)) this._complete();

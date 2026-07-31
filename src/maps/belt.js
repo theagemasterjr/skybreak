@@ -16,20 +16,20 @@ export const BELT = {
   env: {
     gravityMul: 0.45,
     sunDir: [0.55, 0.3, -0.78],
-    sunColor: 0xbfd0ff,
-    sunIntensity: 1.3,
-    hemi: [0x2a3050, 0x1a1428, 0.65],
-    fog: { color: '#14182a', near: 100, far: 600 },
+    sunColor: 0xd0dcff,
+    sunIntensity: 2.0,
+    hemi: [0x46527e, 0x2c2648, 0.95],
+    fog: { color: '#20264a', near: 100, far: 620 },
     sky: {
-      zenith: '#05060e', mid: '#10142a', horizon: '#2a1e3e', sun: '#dfe8ff',
+      zenith: '#0d1226', mid: '#1c2244', horizon: '#40305e', sun: '#eef2ff',
       starHeight: 0.0, starDensity: 0.99, aurora: 0.25, auroraColor: 0x8844aa,
     },
     glow: [
-      { scale: 240, opacity: 0.5, color: 0xbfd0ff },
-      { scale: 110, opacity: 0.85, color: 0xf0f4ff },
+      { scale: 280, opacity: 0.55, color: 0xcfdcff },
+      { scale: 130, opacity: 0.9, color: 0xf6f8ff },
     ],
-    clouds: { tintA: 0x201a34, tintB: 0x342a4e, low: 8, far: 6, high: 3 },
-    motes: { color: 0x9fb4e8, count: 240 },
+    clouds: { tintA: 0x2c2646, tintB: 0x463a62, low: 8, far: 6, high: 3 },
+    motes: { color: 0xb8c8f0, count: 280 },
     palette: {
       grassA: '#3a3e52', grassB: '#4a4f68', grassWarm: '#5a4a7a',
       dirt: '#2e2a3e', rockA: '#4a4658', rockB: '#302c3e', rockTip: '#1e1a2a',
@@ -57,18 +57,27 @@ export const BELT = {
     { x: 44, z: -6, baseY: 16, R: 2.8, amp: 1.2, speed: 0.3, phase: 4, orbit: { cx: 0, cz: 0, r: 44, angSpeed: 0.055, phase: -0.14 } },
   ],
 
-  // graviton rocks — the map's whole reason to exist. r = surface radius;
-  // influence extends r + 10 by default (see World._buildGravRocks)
+  // decorative boulders on the islands are solid here (they read as terrain)
+  solidRocks: true,
+
+  // graviton rocks — spherical: walk all the way around them. r = surface
+  // radius; the field extends r + 10 (see World._buildGravRocks). Their pull
+  // ramps up hard inside the field: jumping won't escape, dashing will.
   gravRocks: [
     { x: 22, y: 12, z: 8, r: 5 },
-    { x: -14, y: 18, z: 16, r: 4.5 },
     { x: 4, y: 26, z: -18, r: 6 },
     { x: -30, y: 10, z: -2, r: 4 },
-    { x: 34, y: 22, z: 34, r: 5 },
-    { x: -38, y: 24, z: 40, r: 4.5 },
     { x: 52, y: 14, z: -34, r: 5.5 },
-    { x: -12, y: 8, z: -34, r: 4 },
-    { x: 14, y: 34, z: 30, r: 4.5 },
+    { x: -38, y: 24, z: 40, r: 4.5 },
+  ],
+
+  // graviton plates — flat purple slabs with ONE-directional gravity: the
+  // field above each face pulls straight down onto it (some are tilted)
+  gravPlates: [
+    { x: -14, y: 17, z: 16, w: 9, d: 7, yaw: 0.4, tilt: 0.35 },
+    { x: 34, y: 21, z: 34, w: 8, d: 8, yaw: 2.1, tilt: -0.3 },
+    { x: -10, y: 9, z: -36, w: 10, d: 6, yaw: 5.5, tilt: 0.5 },
+    { x: 14, y: 32, z: 30, w: 8, d: 6, yaw: 3.6, tilt: 0.15 },
   ],
 
   spawns: {

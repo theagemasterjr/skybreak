@@ -1,6 +1,155 @@
 import * as THREE from 'three';
 import { mulberry32, randRange } from '../utils.js';
 
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+
+// ---------------------------------------------------------------------------
+// THE MAW: a black hole hanging over the central garden. Drift too close and
+// it drags you in, holds you at its heart for a beat, then hurls you out in
+// a random skyward direction. Never deals damage — it's a ride, and a trap.
+// Affects only the local player (each client rides its own maw), so nothing
+// needs network sync; a grace period stops instant re-grabs.
+// ---------------------------------------------------------------------------
+class MawHazard {
+  constructor(world, game) {
+    this.world = world;
+    this.game = game;
+    this.center = new THREE.Vector3(0, 14, 0);
+    this.pullR = 11;
+    this.holding = false;
+    this.holdT = 0;
+    this.grace = 0;
+    this.t = 0;
+
+    const fx = world.hazardFx;
+    // the void core
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(2.1, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0x000000 })
+    );
+    core.position.copy(this.center);
+    fx.add(core);
+    // event-horizon shimmer: an additive backside shell around the core
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(2.6, 20, 14),
+      new THREE.MeshBasicMaterial({
+        color: 0x8844ff, transparent: true, opacity: 0.35,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
+      })
+    );
+    shell.position.copy(this.center);
+    fx.add(shell);
+    // twin accretion disks, counter-tilted
+    this.disks = [];
+    for (const [tilt, color, r] of [[0.5, 0xa060ff, 3.9], [-0.35, 0x55ddff, 3.1]]) {
+      const disk = new THREE.Mesh(
+        new THREE.TorusGeometry(r, 0.22, 8, 40),
+        new THREE.MeshBasicMaterial({
+          color, transparent: true, opacity: 0.65,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        })
+      );
+      disk.position.copy(this.center);
+      disk.rotation.x = Math.PI / 2 + tilt;
+      fx.add(disk);
+      this.disks.push(disk);
+    }
+    const light = new THREE.PointLight(0x9a5fff, 40, 60, 2);
+    light.position.copy(this.center);
+    fx.add(light);
+
+    // spiraling infall particles sketch the pull radius
+    const N = 100;
+    this.parts = Array.from({ length: N }, (_, i) => ({
+      r: 3 + (i / N) * (this.pullR - 3),
+      ang: Math.random() * Math.PI * 2,
+      y: (Math.random() - 0.5) * 4,
+      speed: 0.6 + Math.random() * 0.8,
+    }));
+    const pos = new Float32Array(N * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.swirl = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0xc09aff, size: 0.42, transparent: true, opacity: 0.8,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    }));
+    fx.add(this.swirl);
+  }
+
+  update(dt) {
+    const g = this.game;
+    this.t += dt;
+    this.disks[0].rotation.z += dt * 1.4;
+    this.disks[1].rotation.z -= dt * 1.9;
+
+    // particles spiral inward, respawning at the field's edge
+    const attr = this.swirl.geometry.attributes.position;
+    for (let i = 0; i < this.parts.length; i++) {
+      const part = this.parts[i];
+      part.ang += dt * part.speed * (this.pullR / part.r);
+      part.r -= dt * (0.5 + (this.pullR - part.r) * 0.12);
+      if (part.r < 2.4) { part.r = this.pullR; part.ang = Math.random() * Math.PI * 2; part.y = (Math.random() - 0.5) * 4; }
+      attr.setXYZ(
+        i,
+        this.center.x + Math.cos(part.ang) * part.r,
+        this.center.y + part.y * (part.r / this.pullR),
+        this.center.z + Math.sin(part.ang) * part.r
+      );
+    }
+    attr.needsUpdate = true;
+
+    const p = g.player;
+    if (this.grace > 0) this.grace -= dt;
+
+    if (this.holding) {
+      this.holdT -= dt;
+      p.root(0.2);                       // no wriggling inside a black hole
+      _v1.copy(this.center); _v1.y -= 1; // feet at the heart
+      p.position.lerp(_v1, 1 - Math.exp(-16 * dt));
+      p.vel.set(0, 0, 0);
+      if (Math.random() < dt * 20) {
+        g.effects.glow(this.center.clone().add(_v2.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3)), {
+          color: 0xa060ff, size: 0.8, life: 0.2, grow: -0.8,
+        });
+      }
+      if (this.holdT <= 0) {
+        this.holding = false;
+        this.grace = 4;
+        // hurled out skyward in a random direction — never into the ground
+        const yaw = Math.random() * Math.PI * 2;
+        const el = (55 + Math.random() * 30) * (Math.PI / 180);
+        p.vel.set(Math.cos(yaw) * Math.cos(el), Math.sin(el), Math.sin(yaw) * Math.cos(el)).multiplyScalar(34);
+        p.invulnTimer = Math.max(p.invulnTimer, 0.4);
+        g.effects.impactBurst(this.center.clone(), { color: 0xa060ff, size: 5 });
+        g.effects.ring(this.center.clone(), { color: 0x55ddff, endRadius: 8, life: 0.5, thickness: 0.5 });
+        g.hud?.flash('rgba(150, 90, 255, 0.2)', 0.3);
+        g.player.shake(0.4);
+        g.audio?.play('explosion');
+      }
+      return;
+    }
+
+    if (!p.alive || this.grace > 0) return;
+    _v1.copy(p.position); _v1.y += 1;
+    const d = _v1.distanceTo(this.center);
+    if (d < this.pullR) {
+      _v2.copy(this.center).sub(_v1).normalize();
+      p.vel.addScaledVector(_v2, dt * (16 + 55 * (1 - d / this.pullR)));
+      if (Math.random() < dt * 8) {
+        g.effects.glow(p.position.clone().add(_v1.set(0, 1, 0)), { color: 0xa060ff, size: 0.6, life: 0.15 });
+      }
+      if (d < 1.5) {
+        this.holding = true;
+        this.holdT = 1.0;
+        p.root(1.2);
+        g.audio?.play('windup');
+        g.effects.ring(this.center.clone(), { color: 0xa060ff, endRadius: 5, life: 0.4, thickness: 0.4 });
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Voidgarden: a night garden adrift in a starfield, aurora overhead.
 // Signature verb: ORBITING GROUND — five garden platforms slowly circle the
@@ -50,13 +199,13 @@ export const VOIDGARDEN = {
   blurb: 'the garden rearranges itself',
 
   env: {
-    sunDir: [-0.3, 0.55, 0.78],   // a cold moon, opposite the usual sun
-    sunColor: 0xafc8ff,
-    sunIntensity: 1.1,
-    hemi: [0x2a3560, 0x141024, 0.75],
-    fog: { color: '#221a3e', near: 80, far: 520 },
+    sunDir: [-0.3, 0.55, 0.78],   // a bright moon, opposite the usual sun
+    sunColor: 0xbfd4ff,
+    sunIntensity: 1.8,
+    hemi: [0x4a5a95, 0x2a2148, 1.05],
+    fog: { color: '#2c2450', near: 85, far: 560 },
     sky: {
-      zenith: '#0a0e2a', mid: '#1c1440', horizon: '#38285a', sun: '#cfe0ff',
+      zenith: '#141a3e', mid: '#2a2058', horizon: '#4c3c7e', sun: '#e0ecff',
       starHeight: 0.05, starDensity: 0.993, aurora: 0.55, auroraColor: 0x44ffcc,
     },
     glow: [
@@ -163,6 +312,10 @@ export const VOIDGARDEN = {
       s.scale.set(randRange(mrng, 60, 110), randRange(mrng, 18, 30), 1);
       root.add(s);
     }
+  },
+
+  makeHazards(world, game) {
+    return new MawHazard(world, game);
   },
 
   spawns: {

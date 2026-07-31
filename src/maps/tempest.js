@@ -2,10 +2,10 @@ import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
 // Tempest Crown: a ring of rain-dark islands circling the eye of a storm.
-// Signature verbs: WIND RIVERS — glowing currents that sling riders across
-// the map — and telegraphed LIGHTNING STRIKES on random islands.
-// Hazards are deterministic off the world's seeded hazardRng + hazardClock,
-// so every multiplayer client sees the same storm.
+// Signature verb: WIND RIVERS — quiet, glowing currents that sling riders
+// along their path. They run every which way: a vertical updraft in the eye,
+// a sideways arc hugging the ring, a diagonal climb — not everything leads
+// to the center.
 // ---------------------------------------------------------------------------
 
 const _v1 = new THREE.Vector3();
@@ -14,14 +14,13 @@ const _seg = new THREE.Vector3();
 
 // wind rivers: polyline corridors (radius r); riding one flings you along it
 const WINDS = [
-  { pts: [[40, 8, 0], [12, 10, 2], [-12, 12, -2], [-40, 11, 0]], r: 3.5, speed: 46 },
-  { pts: [[20, 14, 36], [4, 15, 10], [-6, 16, -12], [-20, 17, -36]], r: 3.5, speed: 46 },
-  { pts: [[-20, 20, 36], [-2, 16, 8], [10, 12, -10], [20, 9, -36]], r: 3.5, speed: 46 },
+  // updraft: a wind elevator rising through the storm's eye
+  { pts: [[2, -4, 4], [0, 8, 2], [-2, 20, 0], [0, 32, -2]], r: 4, speed: 40 },
+  // eastern arc: a sideways current sweeping island-to-island along the ring
+  { pts: [[26, 10, 38], [44, 9, 22], [52, 7, -2], [44, 6, -24], [26, 8, -40]], r: 3.5, speed: 46 },
+  // western climb: a diagonal river that gains height as it crosses
+  { pts: [[-42, 8, -6], [-20, 14, -16], [4, 20, -26], [24, 27, -38]], r: 3.5, speed: 44 },
 ];
-
-const STRIKE_RADIUS = 6;
-const STRIKE_DAMAGE = 45;
-const TELEGRAPH_T = 2;
 
 class TempestHazards {
   constructor(world, game) {
@@ -37,15 +36,15 @@ class TempestHazards {
       return { pts, lens, total: lens[lens.length - 1], r: w.r, speed: w.speed };
     });
 
-    // wind streak particles (visual): advected along each river
+    // wind streak particles (visual): sparse, dim — a suggestion, not a show
     this.streaks = [];
     for (const w of this.winds) {
-      const N = 70;
+      const N = 24;
       const pos = new Float32Array(N * 3);
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       const mat = new THREE.PointsMaterial({
-        color: 0x9fd8ff, size: 0.65, transparent: true, opacity: 0.75,
+        color: 0x9fd8ff, size: 0.4, transparent: true, opacity: 0.32,
         blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
       });
       const points = new THREE.Points(geo, mat);
@@ -57,33 +56,20 @@ class TempestHazards {
       }));
       this.streaks.push({ w, points, parts });
     }
-    // faint ribbon tubes so the corridors read even without particles
+    // whisper-faint ribbons so the corridors are discoverable up close
     for (const w of this.winds) {
-      const curve = new THREE.CatmullRomCurve3(w.pts);
+      const curve = new THREE.CatmullRomCurve3(w.pts.map((p) => p.clone()));
       const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, 24, w.r * 0.75, 7, false),
+        new THREE.TubeGeometry(curve, 24, w.r * 0.7, 7, false),
         new THREE.MeshBasicMaterial({
-          color: 0x6aa8e8, transparent: true, opacity: 0.07,
+          color: 0x6aa8e8, transparent: true, opacity: 0.025,
           blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
         })
       );
       world.hazardFx.add(tube);
     }
 
-    // lightning state
-    this.nextStrikeAt = 10 + world.hazardRng() * 8;   // first bolt comes sooner
-    this.telegraph = null;                            // { until, island, pulseT }
-    // telegraph disc (repositioned per strike)
-    this.disc = new THREE.Mesh(
-      new THREE.CircleGeometry(STRIKE_RADIUS, 26),
-      new THREE.MeshBasicMaterial({
-        color: 0xfff0a8, transparent: true, opacity: 0, depthWrite: false,
-        blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      })
-    );
-    this.disc.rotation.x = -Math.PI / 2;
-    world.hazardFx.add(this.disc);
-
+    // ambient storm flicker (no strikes — just the sky grumbling)
     this.flickerT = 0;
     this.nextFlickerAt = 3 + world.hazardRng() * 6;
   }
@@ -126,8 +112,8 @@ class TempestHazards {
       p.vel.addScaledVector(_v1, dt * 2.6);
       p.windBoostT = 0.25;
       p.slowFall(0.2);
-      if (Math.random() < dt * 20) {
-        g.effects.glow(p.position.clone().add(_v2.set(0, 1, 0)), { color: 0x9fd8ff, size: 0.7, life: 0.15 });
+      if (Math.random() < dt * 6) {
+        g.effects.glow(p.position.clone().add(_v2.set(0, 1, 0)), { color: 0x9fd8ff, size: 0.5, life: 0.12 });
       }
     }
 
@@ -144,7 +130,7 @@ class TempestHazards {
       posAttr.needsUpdate = true;
     }
 
-    // ---- sky-wide flicker ----
+    // ---- sky-wide flicker: the storm grumbles, but never strikes ----
     if (this.flickerT > 0) {
       this.flickerT -= dt;
       world.sun.intensity = world.sunBaseIntensity * (this.flickerT > 0 ? 1.9 : 1);
@@ -152,63 +138,6 @@ class TempestHazards {
     if (clock >= this.nextFlickerAt) {
       this.nextFlickerAt = clock + 5 + world.hazardRng() * 6;
       this.flickerT = 0.12;
-    }
-
-    // ---- lightning: telegraph, then strike ----
-    if (!this.telegraph && clock >= this.nextStrikeAt) {
-      const idx = Math.floor(world.hazardRng() * world.islands.length);
-      const isl = world.islands[idx];
-      this.telegraph = { until: clock + TELEGRAPH_T, island: isl, pulseT: 0 };
-      this.log.push([Math.round(clock * 100) / 100, idx]);
-      this.disc.position.set(isl.x, isl.topY + (isl.domeH || 0) + 0.4, isl.z);
-      g.audio?.play('chargeStart');
-    }
-    if (this.telegraph) {
-      const T = this.telegraph;
-      const left = T.until - clock;
-      this.disc.material.opacity = 0.16 + 0.14 * Math.sin(clock * 18);
-      T.pulseT -= dt;
-      if (T.pulseT <= 0) {
-        T.pulseT = 0.4;
-        g.effects.ring(this.disc.position.clone(), {
-          color: 0xfff0a8, startRadius: STRIKE_RADIUS, endRadius: 1, life: 0.35, opacity: 0.5, thickness: 0.3,
-        });
-      }
-      if (left <= 0) {
-        this.telegraph = null;
-        this.disc.material.opacity = 0;
-        this.nextStrikeAt = clock + 14 + world.hazardRng() * 8;
-        this._strike(T.island);
-      }
-    }
-  }
-
-  _strike(isl) {
-    const g = this.game;
-    const c = new THREE.Vector3(isl.x, isl.topY + (isl.domeH || 0), isl.z);
-    const top = c.clone(); top.y += 60;
-    g.effects.beam(top, c, { color: 0xfff6d0, radius: 0.5, life: 0.22 });
-    g.effects.beam(top, c, { color: 0xaaccff, radius: 1.1, life: 0.14 });
-    g.effects.impactBurst(c, { color: 0xfff0a8, size: 6 });
-    g.effects.ring(c, { color: 0xcfe0ff, endRadius: STRIKE_RADIUS + 2, life: 0.5, thickness: 0.5 });
-    g.hud?.flash('rgba(240, 244, 255, 0.35)', 0.2);
-    g.audio?.play('explosion');
-    g.hitstop(0.05);
-    this.flickerT = 0.14;
-
-    // damage: local player + PvE enemies (never remote avatars — their owners
-    // take the same deterministic strike on their own screens)
-    const p = g.player;
-    if (p.alive && p.position.distanceTo(c) < STRIKE_RADIUS + 1) {
-      p.takeDamage(STRIKE_DAMAGE, c, {});
-      p.applyKnockback(_v1.set(0, 14, 0));
-    }
-    for (const e of g.enemies) {
-      if (!e.alive || e.type === 'duelist') continue;
-      _v1.copy(e.position).setY(e.position.y + (e.height || 1) * 0.5);
-      if (_v1.distanceTo(c) < STRIKE_RADIUS + e.radius) {
-        e.takeDamage(STRIKE_DAMAGE, { knockback: _v2.set(0, 12, 0), source: 'hazard' });
-      }
     }
   }
 }

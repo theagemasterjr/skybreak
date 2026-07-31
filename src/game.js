@@ -163,6 +163,14 @@ export class Game {
   // tear down the current world and build the given map in its place.
   // hazard seed must match across multiplayer clients (rolled by the host).
   loadMap(mapId, seed = 1) {
+    // same map again? reuse the built world — skips a full geometry rebuild
+    // (the map-switch hitch) — just re-seed hazards and rewind the clock so
+    // multiplayer clients still agree on platform orbits
+    if (this.world && this.world.mapDef.id === getMap(mapId).id) {
+      this.world.clock = 0;
+      this.world.resetHazards(seed);
+      return this.world;
+    }
     if (this.world) this.world.dispose();
     this.world = new World(this.scene, getMap(mapId));
     this.world._game = this;
@@ -204,8 +212,8 @@ export class Game {
   toMenu() {
     if (this.state === 'tutorial') this.tutorial.exit();
     this._clearBattlefield();
-    // menu backdrop is always the classic sunset arena
-    if (this.world.mapDef.id !== 'classic') this.loadMap('classic');
+    // keep the last-played world as the menu backdrop: rebuilding classic on
+    // every exit was a pointless hitch (and the views are all handsome)
     this.state = 'menu';
     this.mode = 'solo';
     this.menus.show('main');
@@ -217,7 +225,7 @@ export class Game {
     this.currentClassId = classId;
     this._clearBattlefield();
     this.currentMapId = this._resolveMapParam(mapId);   // "FIGHT AGAIN" replays this
-    this.loadMap(this.currentMapId);
+    this.loadMap(this.currentMapId, (Math.random() * 1e9) | 0);   // fresh hazard roll per run
     this.setClass(classId);
     this.player.respawn();
     this.player.freeze = false;
@@ -560,6 +568,9 @@ export class Game {
   tick(dt) {
     // room networking stays alive through every state (lobby sits over menus)
     this.ffa.tickAlways(dt);
+    // world clocks run on UNSCALED dt: hitstop is local juice and must never
+    // drift platform orbits / hazard schedules apart between online clients
+    this.world.advanceClocks(dt, this.state);
     // hitstop: the world freezes for a beat on heavy impacts
     if (this.hitstopT > 0) {
       this.hitstopT -= dt;

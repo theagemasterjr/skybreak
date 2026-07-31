@@ -34,19 +34,22 @@
 ## The battlegrounds
 
 - **Sky Sanctum** — the classic sunset islands.
-- **Tempest Crown** — a storm ring. Dash into a glowing **wind river** and it
-  slings you across the map. When a golden circle starts pulsing on an island,
-  lightning lands there two seconds later — don't be standing in it.
-- **Ember Reach** — obsidian islands over a lava caldera. **Fire geysers**
-  erupt on a rhythm: catch one as it blows for a free super-launch, stand in
-  the flame too long and you burn.
+- **Tempest Crown** — a storm ring. Dash into a **wind river** and it slings
+  you along its path — an updraft in the eye, a sideways arc around the ring,
+  a diagonal climb. Subtle glows mark the currents.
+- **Ember Reach** — obsidian islands over a lava caldera. Towering **fire
+  geysers** erupt on a rhythm — pure launch pads, no burn — and the caldera's
+  heart hides one giant geyser that fires you into the stratosphere.
 - **The Godspire** — one colossal marble tower. Spiral ledges, broken bridges,
   orbiting rubble you can ride, and a beacon crown at the top. Height is power.
 - **Voidgarden** — a night garden under an aurora. Five garden platforms
-  slowly orbit the center — the map rearranges itself as you fight.
-- **Shattered Belt** — deep space, **low gravity**, and glowing graviton
-  rocks that bend gravity toward them: land on one and you can run around the
-  whole asteroid. Leave, and gravity snaps back to normal.
+  slowly orbit the center, and a **black hole** hangs above the heart of the
+  garden: drift too close and it swallows you, holds you for a breath, then
+  hurls you skyward in a random direction. No damage — but no control either.
+- **Shattered Belt** — deep space, **low gravity**, and two kinds of graviton
+  terrain: round rocks you can run all the way around, and purple plates that
+  pull one way onto their face. Once a field grips you, jumping won't free
+  you — only a dash breaks the pull. Drifting particles show each field's reach.
 - **Training Grounds** — a quiet flat plate with practice dummies. Home of
   the tutorials; also pickable for free practice.
 
