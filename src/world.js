@@ -32,6 +32,7 @@ export const SUN_DIR = new THREE.Vector3(0.38, 0.30, -0.87).normalize();
 
 const _pp = { x: 0, z: 0 };
 const _pp2 = { x: 0, z: 0 };
+const _gv = new THREE.Vector3();
 
 export class World {
   constructor(scene, mapDef) {
@@ -65,6 +66,8 @@ export class World {
     this._buildPlatforms();
     this._buildClouds();
     this._buildMotes();
+    this.gravRocks = [];    // graviton rocks: bend player gravity toward them
+    if (mapDef.gravRocks) this._buildGravRocks();
     if (mapDef.build) mapDef.build(this, this.root, mulberry32(50));
 
     this.soloSpawn = new THREE.Vector3(...mapDef.spawns.solo);
@@ -528,6 +531,57 @@ export class World {
     });
     this.motes = new THREE.Points(geo, mat);
     this.root.add(this.motes);
+  }
+
+  // ---- graviton rocks ---------------------------------------------------
+  _buildGravRocks() {
+    const rng = mulberry32(9090);
+    for (const def of this.mapDef.gravRocks) {
+      const center = new THREE.Vector3(def.x, def.y, def.z);
+      this.gravRocks.push({ center, r: def.r, influence: def.r + (def.influence ?? 10) });
+
+      const geo = new THREE.DodecahedronGeometry(def.r, 1).toNonIndexed();
+      paintGeometry(geo, this.palette.rockA, this.palette.rockB, rng, 0.14);
+      const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        vertexColors: true, roughness: 1, flatShading: true,
+      }));
+      rock.position.copy(center);
+      rock.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);
+      rock.castShadow = true;
+      rock.receiveShadow = true;
+      this.root.add(rock);
+
+      // glowing graviton ring: the "this rock owns gravity here" tell
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x55e8ff, transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(def.r + 1.1, 0.12, 6, 32), ringMat);
+      ring.position.copy(center);
+      ring.rotation.set(rng() * Math.PI, rng() * Math.PI, 0);
+      this.root.add(ring);
+      const light = new THREE.PointLight(0x55e8ff, 8, def.r * 5, 2);
+      light.position.copy(center);
+      this.root.add(light);
+    }
+  }
+
+  // Local gravity at a position: writes the (unit) direction into out and
+  // returns the strength multiplier. Near a graviton rock, "down" bends
+  // smoothly toward the rock's center; elsewhere it's plain world-down.
+  gravityAt(pos, out) {
+    out.set(0, -1, 0);
+    let best = null, bestD = Infinity;
+    for (const rk of this.gravRocks) {
+      const d = pos.distanceTo(rk.center);
+      if (d < rk.influence && d < bestD) { bestD = d; best = rk; }
+    }
+    if (best) {
+      _gv.copy(best.center).sub(pos).normalize();
+      const t = 1 - Math.max(0, (bestD - best.r) / (best.influence - best.r));
+      out.lerp(_gv, t).normalize();
+    }
+    return this.mapDef.env.gravityMul ?? 1;
   }
 
   // ---- per-frame update ----

@@ -15,6 +15,11 @@ const RADIUS = 0.5;
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _grav = new THREE.Vector3(0, -1, 0);
+const _up = new THREE.Vector3(0, 1, 0);
+const _q1 = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _euler = new THREE.Euler();
 
 export class Player {
   constructor(world, camera, input) {
@@ -36,6 +41,8 @@ export class Player {
     this.dashDuration = 0.17;
 
     this.grounded = false;
+    this.up = new THREE.Vector3(0, 1, 0);   // bends near graviton rocks (belt map)
+    this._onRock = false;
     this.coyote = 0;
     this.jumpBuffer = 0;
     this.jumpsLeft = 2;
@@ -134,6 +141,18 @@ export class Player {
   applyKnockback(v) {
     this.vel.add(v);
     if (v.y > 2) this.grounded = false;
+  }
+
+  // jump impulse along the local up (plain vel.y set on normal maps, so
+  // classic jump feel is bit-identical there)
+  _jumpAlongUp(speed) {
+    if (this.up.y > 0.999) {
+      this.vel.y = speed;
+    } else {
+      const inward = this.vel.dot(this.up);
+      if (inward < 0) this.vel.addScaledVector(this.up, -inward);
+      this.vel.addScaledVector(this.up, speed);
+    }
   }
 
   grantShield(amount, duration) {
@@ -330,25 +349,31 @@ export class Player {
         const f = Math.exp(-9 * dt);
         this.vel.x *= f; this.vel.z *= f;
       }
-      // gravity (reduced heavily during air-stall, softly during slow-fall)
+      // gravity (reduced heavily during air-stall, softly during slow-fall);
+      // direction + strength come from the world so graviton rocks can bend
+      // it — on normal maps this is exactly the old straight-down pull
       const g = (this.stallTimer > 0 ? GRAVITY * 0.12
         : this.slowFallTimer > 0 ? GRAVITY * 0.45 : GRAVITY) * (this.gravityScale || 1);
-      this.vel.y -= g * dt;
+      const gMul = this.world.gravityAt(this.position, _grav);
+      this.vel.addScaledVector(_grav, g * gMul * dt);
       if (this.stallTimer > 0 && this.vel.y < -3) this.vel.y = -3;
       if (this.slowFallTimer > 0 && this.vel.y < -7) this.vel.y = -7;
     }
+    // smoothed "up": opposite the local gravity (identity on normal maps)
+    this.world.gravityAt(this.position, _grav);
+    this.up.lerp(_v2.copy(_grav).negate(), 1 - Math.exp(-6 * dt)).normalize();
 
     // ---- jump ----
     if (this.jumpBuffer > 0 && !rooted) {
       if (this.grounded || this.coyote > 0) {
-        this.vel.y = 13;
+        this._jumpAlongUp(13);
         this.grounded = false;
         this.coyote = 0;
         this.jumpBuffer = 0;
         this.jumpsLeft = 1;
         if (this.onJump) this.onJump(false);
       } else if (this.jumpsLeft > 0) {
-        this.vel.y = 12;
+        this._jumpAlongUp(12);
         this.jumpsLeft--;
         this.jumpBuffer = 0;
         // double jump gives a little directional boost
@@ -459,6 +484,26 @@ export class Player {
       }
     }
 
+    // ---- graviton rock surfaces: land on and walk around asteroids ----
+    this._onRock = false;
+    for (const rk of this.world.gravRocks || []) {
+      const d = _v1.copy(this.position).sub(rk.center);
+      const dist = d.length();
+      if (dist < rk.r + 0.05 && dist > 0.0001) {
+        d.multiplyScalar(1 / dist);              // outward surface normal
+        this.position.copy(rk.center).addScaledVector(d, rk.r + 0.02);
+        const into = this.vel.dot(d);
+        if (into < 0) {
+          this.vel.addScaledVector(d, -into);    // cancel motion into the rock
+          if (into < -9 && !this.grounded && this.onLand) this.onLand(-into);
+        }
+        this.grounded = true;
+        this._onRock = true;
+        this.jumpsLeft = 2;
+        this.recoverAssistUsed = false;
+      }
+    }
+
     // ---- void recovery ----
     this.inRecoverZone = this.position.y < -45;
     if (this.inRecoverZone && !this.recoverAssistUsed) {
@@ -511,16 +556,30 @@ export class Player {
     const shakePitch = (Math.sin(time * 53 + 1) + Math.sin(time * 37 + 4)) * 0.012 * sh;
     const shakePos = 0.12 * sh;
 
-    this.camera.position.set(
-      this.position.x + bobX + (Math.sin(time * 47) * shakePos),
-      this.position.y + EYE_HEIGHT + bobY - this.landDip + (Math.sin(time * 43 + 1) * shakePos),
-      this.position.z
-    );
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.set(
-      this.pitch + shakePitch,
-      this.yaw + shakeYaw,
-      this.tilt
-    );
+    if (this.up.y > 0.9999) {
+      // normal maps: the original euler camera, untouched
+      this.camera.position.set(
+        this.position.x + bobX + (Math.sin(time * 47) * shakePos),
+        this.position.y + EYE_HEIGHT + bobY - this.landDip + (Math.sin(time * 43 + 1) * shakePos),
+        this.position.z
+      );
+      this.camera.rotation.order = 'YXZ';
+      this.camera.rotation.set(
+        this.pitch + shakePitch,
+        this.yaw + shakeYaw,
+        this.tilt
+      );
+    } else {
+      // bent gravity: eye rides along the local up, and the whole yaw/pitch
+      // frame is re-based onto it so the horizon rolls with the rock
+      this.camera.position.set(
+        this.position.x + this.up.x * EYE_HEIGHT + bobX + (Math.sin(time * 47) * shakePos),
+        this.position.y + this.up.y * EYE_HEIGHT + bobY - this.landDip + (Math.sin(time * 43 + 1) * shakePos),
+        this.position.z + this.up.z * EYE_HEIGHT
+      );
+      _q1.setFromUnitVectors(_up, this.up);
+      _euler.set(this.pitch + shakePitch, this.yaw + shakeYaw, this.tilt, 'YXZ');
+      this.camera.quaternion.copy(_q1).multiply(_q2.setFromEuler(_euler));
+    }
   }
 }
