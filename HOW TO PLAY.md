@@ -17,14 +17,38 @@
 
 ## Game modes
 
-- **SINGLEPLAYER** — the endless wave survival described below.
-- **DUEL (1v1 online)** — click DUEL and you're placed in matchmaking; the moment
-  another player is searching, you're paired. Both of you pick a class, then fight
-  on the sky islands — **best of three rounds** (first to two round wins takes the
-  match). Your rival glows **red** with a marker over their head so you can always
-  spot them. Knocking them into the void below counts as a kill. Esc during a duel
-  shows a menu but the match keeps running — get back in there. When it's over you
-  can ask for a rematch.
+- **SINGLEPLAYER** — the endless wave survival described below. Pick your
+  **battleground** from the row above the fighters (or roll Random).
+- **MULTIPLAYER → DUEL (1v1 online)** — matchmaking pairs you with another
+  searching player. Both pick a class, then fight **best of three rounds**
+  (first to two takes the match) — the game rolls a random battleground for
+  the whole match. Your rival glows **red** with a marker over their head.
+  Knocking them into the void counts as a kill. When it's over you can rematch.
+- **MULTIPLAYER → FREE FOR ALL** — create or join a named room (2–4 players).
+  Last one flying wins the round; every round rolls a fresh random map.
+- **TUTORIAL** — guided training for the basics and for every class: real
+  objectives that tick off as you actually do them, on the Training Grounds.
+- In multiplayer, staying untouched for **10 seconds** slowly regenerates
+  your health (1 per second) until you're hit again.
+
+## The battlegrounds
+
+- **Sky Sanctum** — the classic sunset islands.
+- **Tempest Crown** — a storm ring. Dash into a glowing **wind river** and it
+  slings you across the map. When a golden circle starts pulsing on an island,
+  lightning lands there two seconds later — don't be standing in it.
+- **Ember Reach** — obsidian islands over a lava caldera. **Fire geysers**
+  erupt on a rhythm: catch one as it blows for a free super-launch, stand in
+  the flame too long and you burn.
+- **The Godspire** — one colossal marble tower. Spiral ledges, broken bridges,
+  orbiting rubble you can ride, and a beacon crown at the top. Height is power.
+- **Voidgarden** — a night garden under an aurora. Five garden platforms
+  slowly orbit the center — the map rearranges itself as you fight.
+- **Shattered Belt** — deep space, **low gravity**, and glowing graviton
+  rocks that bend gravity toward them: land on one and you can run around the
+  whole asteroid. Leave, and gravity snaps back to normal.
+- **Training Grounds** — a quiet flat plate with practice dummies. Home of
+  the tutorials; also pickable for free practice.
 
 ## The game
 
@@ -41,6 +65,7 @@ Press **CODEX** on the title or pause screen for the full dictionary: every enem
 - **Storm Reaver** — speed skirmisher, fastest class in the sky. Four dashes, and every ability is a way to move: Storm Lunge skewers a line through anyone in your path, Thunderclap instantly stuns everything around you, Cyclone launches you and everyone nearby into the sky together, and Slipstream is free flight that drags anyone you touch along with you. Falls a little slower than everyone else.
 - **Sorcerer** — the limitless duelist. Red snipes across the whole arena, Blue is a huge slow orb that sucks everyone into its core and holds them there (no dashing out), Black Flash is a crackling point-blank detonation, and Purple Nuke roots you for 3 vulnerable seconds before erasing everything in a straight line.
 - **Shadow Assassin** — fragile hit-and-run, and every attack seeps void poison. Shadowstep dashes in, slices hard, and pulls you back out; Void Slash slows runners; Eviscerate is a three-hit combo — a dash-slice that, if it connects, uppercuts the victim into the sky with you and ends with a slash that hurls them away for brutal damage.
+- **The Gambler** — luck incarnate. One ability: pull the lever. The slot machine decides — a heal, a revolver, a golden serpent, a nuke in your hands, or a lit bomb at your feet. Two-in-a-row lands something small (sometimes nasty); three-in-a-row is always a jackpot.
 
 ## Enemy field guide
 
