@@ -1,6 +1,7 @@
-// Shattered Belt physics: gravity direction/strength, graviton-rock capture,
-// and classic-map parity (vector gravity must be identical to the old
-// straight-down pull away from rocks). Run: node test/belt-test.mjs
+// Shattered Belt physics: plate gravity fields (one-directional), landing,
+// solid undersides, jump-proof fields, and classic-map parity (vector
+// gravity must be identical to the old straight-down pull elsewhere).
+// Run: node test/belt-test.mjs
 
 const ctx2dStub = {
   fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '',
@@ -32,75 +33,25 @@ const scene = new THREE.Scene();
 const belt = new World(scene, MAP_DEFS.belt);
 const dir = new THREE.Vector3();
 
-// (a) far from any rock: plain down, plain strength (belt is normal gravity)
+// (a) in the open: plain down, plain strength (belt is normal gravity)
 let mul = belt.gravityAt(new THREE.Vector3(0, 200, 0), dir);
 if (dir.distanceTo(new THREE.Vector3(0, -1, 0)) > 1e-6) fail(`far gravity dir ${dir.toArray()}`);
 if (Math.abs(mul - 1) > 1e-9) fail(`belt gravity mul ${mul}`);
 
-// (a2) at a rock's surface the pull is NORMAL strength (redirected, not amplified)
-{
-  const rk0 = MAP_DEFS.belt.gravRocks[0];
-  const m = belt.gravityAt(new THREE.Vector3(rk0.x + rk0.r + 0.2, rk0.y, rk0.z), dir);
-  if (Math.abs(m - 1) > 1e-9) fail(`near-surface pull should be 1x: ${m}`);
-}
-
-// (a3) plate fields: one-directional gravity onto the face
+// (b) plate fields: one-directional, normal strength, no reach behind
 {
   const pl = belt.gravPlates[0];
   const probe = pl.center.clone().addScaledVector(pl.normal, 5);
-  belt.gravityAt(probe, dir);
+  const m = belt.gravityAt(probe, dir);
   if (dir.angleTo(pl.normal.clone().negate()) > 0.01) fail(`plate gravity not anti-normal: ${dir.toArray()}`);
-  // below/behind the plate: field does not reach
+  if (Math.abs(m - 1) > 1e-9) fail(`plate pull should be 1x: ${m}`);
   const behind = pl.center.clone().addScaledVector(pl.normal, -3);
   belt.gravityAt(behind, dir);
   if (dir.angleTo(pl.normal.clone().negate()) < 0.01) fail('plate field leaks behind the face');
+  ok('plate gravity field');
 }
 
-// (b) right beside a rock surface: gravity points at its center
-const rk = MAP_DEFS.belt.gravRocks[0];
-const probe = new THREE.Vector3(rk.x + rk.r + 0.5, rk.y, rk.z);
-belt.gravityAt(probe, dir);
-const toCenter = new THREE.Vector3(rk.x, rk.y, rk.z).sub(probe).normalize();
-if (dir.angleTo(toCenter) > 0.15) fail(`near-rock gravity off by ${dir.angleTo(toCenter)} rad`);
-ok('gravity field (far + near rock)');
-
-// (c) a player dropped near a rock gets captured and stands on its surface
-{
-  const p = new Player(belt, camStub, inputStub);
-  p.position.set(rk.x + rk.r + 3, rk.y + 2, rk.z);
-  p.vel.set(0, 0, 0);
-  for (let i = 0; i < 600; i++) p.update(1 / 60, i / 60);
-  const d = p.position.distanceTo(new THREE.Vector3(rk.x, rk.y, rk.z));
-  if (Math.abs(d - rk.r) > 0.3) fail(`player not on rock surface: dist ${d.toFixed(2)} vs r ${rk.r}`);
-  if (!p.grounded || !p._onRock) fail(`player not grounded on rock (grounded=${p.grounded}, onRock=${p._onRock})`);
-  const radial = p.position.clone().sub(new THREE.Vector3(rk.x, rk.y, rk.z)).normalize();
-  if (p.up.angleTo(radial) > 0.25) fail(`up not radial: ${p.up.angleTo(radial)} rad`);
-  ok('rock capture: lands, stands, up is radial');
-}
-
-// (c2) jumping off a rock cannot escape its field — you fall back
-{
-  const p = new Player(belt, camStub, inputStub);
-  const center = new THREE.Vector3(rk.x, rk.y, rk.z);
-  p.position.set(rk.x + rk.r + 0.01, rk.y, rk.z);
-  p.vel.set(0, 0, 0);
-  for (let i = 0; i < 120; i++) p.update(1 / 60, i / 60);   // settle onto the surface
-  if (!p._onRock) fail('escape test: never settled on the rock');
-  // simulate a full jump straight off the surface
-  p.vel.copy(p.up).multiplyScalar(13);
-  p.grounded = false;
-  let maxD = 0;
-  for (let i = 0; i < 400; i++) {
-    p.update(1 / 60, 2 + i / 60);
-    maxD = Math.max(maxD, p.position.distanceTo(center));
-  }
-  const influence = rk.r + 10;
-  if (maxD > influence) fail(`jump escaped the field: reached ${maxD.toFixed(1)} vs influence ${influence}`);
-  if (!p._onRock) fail('jump test: did not fall back onto the rock');
-  ok('rock fields are jump-proof (dash-only escape)');
-}
-
-// (c3) a player above a plate lands on its face, up aligned to the normal
+// (c) a player above a plate lands on its face, up aligned to the normal
 {
   const pl = belt.gravPlates[0];
   const p = new Player(belt, camStub, inputStub);
@@ -112,16 +63,42 @@ ok('gravity field (far + near rock)');
   if (Math.abs(h - 0.37) > 0.1) fail(`plate landing height ${h.toFixed(2)} != ~0.37`);
   if (p.up.angleTo(pl.normal) > 0.25) fail(`plate up not aligned: ${p.up.angleTo(pl.normal)} rad`);
   ok('plate capture: lands on the face, up follows the normal');
+
+  // (c2) jumping off the face cannot escape the field — you arc back down
+  p.vel.copy(p.up).multiplyScalar(13);
+  p.grounded = false;
+  let maxH = 0;
+  for (let i = 0; i < 400; i++) {
+    p.update(1 / 60, 7 + i / 60);
+    maxH = Math.max(maxH, p.position.clone().sub(pl.center).dot(pl.normal));
+  }
+  if (maxH > pl.fieldH) fail(`jump left the plate field: ${maxH.toFixed(1)} vs ${pl.fieldH}`);
+  if (!p._onRock) fail('jump test: did not come back to the plate');
+  ok('plate fields are jump-proof (dash-only escape)');
 }
 
-// (d) classic parity: vector gravity == old scalar gravity away from rocks
+// (d) the plate's underside is solid: no phasing through from behind
+{
+  const pl = belt.gravPlates[0];
+  const p = new Player(belt, camStub, inputStub);
+  p.position.copy(pl.center).addScaledVector(pl.normal, -4);
+  for (let i = 0; i < 240; i++) {
+    // keep shoving the player at the back of the plate
+    p.vel.copy(pl.normal).multiplyScalar(18);
+    p.update(1 / 60, i / 60);
+  }
+  const h = p.position.clone().sub(pl.center).dot(pl.normal);
+  if (h > -0.2) fail(`phased through the plate underside: h=${h.toFixed(2)}`);
+  ok('plate underside is solid');
+}
+
+// (e) classic parity: vector gravity == old scalar gravity away from plates
 {
   const classic = new World(new THREE.Scene(), MAP_DEFS.classic);
   const p = new Player(classic, camStub, inputStub);
   p.position.set(0, 30, 8);   // free fall over the main island
   p.vel.set(0, 0, 0);
   p.update(1 / 60, 0);
-  // one step of plain gravity: vel.y = -30 * dt exactly, no sideways drift
   if (Math.abs(p.vel.y - (-30 / 60)) > 1e-9) fail(`classic gravity step ${p.vel.y} != ${-30 / 60}`);
   if (p.vel.x !== 0 || p.vel.z !== 0) fail('classic gravity gained sideways drift');
   if (p.up.distanceTo(new THREE.Vector3(0, 1, 0)) > 1e-6) fail('classic up drifted');

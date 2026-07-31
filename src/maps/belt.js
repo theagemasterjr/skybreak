@@ -60,26 +60,20 @@ export const BELT = {
   // decorative boulders on the islands are solid here (they read as terrain)
   solidRocks: true,
 
-  // graviton rocks — spherical: walk all the way around them. r = surface
-  // radius; the field extends r + 10 (see World._buildGravRocks). Their pull
-  // ramps up HARD inside the field: jumping won't escape, only dashing will.
-  gravRocks: [
-    { x: 22, y: 12, z: 8, r: 5 },
-    { x: 4, y: 26, z: -18, r: 6 },
-  ],
-
-  // graviton plates — flat purple slabs with ONE-directional gravity: the
-  // field over each face pulls straight onto it. Angles vary wildly: tilted
-  // ramps, a sideways wall you stand on like a floor, and a near-upside-down
-  // ceiling you walk under with the world flipped.
+  // graviton plates — crystalline purple slabs with ONE-directional gravity:
+  // the field over each face pulls straight onto it. Spread across the whole
+  // belt in varying sizes and wild angles: ramps, a sideways wall you stand
+  // on like a floor, and a near-upside-down ceiling you walk under flipped.
   gravPlates: [
-    { x: -14, y: 17, z: 16, w: 9, d: 7, yaw: 0.4, tilt: 0.35 },
-    { x: 34, y: 21, z: 34, w: 8, d: 8, yaw: 2.1, tilt: -0.3 },
-    { x: -10, y: 9, z: -36, w: 10, d: 6, yaw: 5.5, tilt: 0.5 },
-    { x: 14, y: 32, z: 30, w: 8, d: 6, yaw: 3.6, tilt: -0.75 },
-    { x: -30, y: 12, z: -2, w: 8, d: 6, yaw: 0.8, tilt: 1.45 },    // the WALL: face points sideways
-    { x: 52, y: 16, z: -34, w: 9, d: 7, yaw: 1.2, tilt: 3.0 },     // the CEILING: near upside-down
-    { x: -38, y: 24, z: 40, w: 8, d: 6, yaw: 4.2, tilt: 0.9 },     // steep ramp
+    { x: -16, y: 17, z: 18, w: 9, d: 9, yaw: 0.4, tilt: 0.35 },
+    { x: 38, y: 22, z: 38, w: 12, d: 12, yaw: 2.1, tilt: -0.3 },   // the grand plaza
+    { x: -12, y: 9, z: -40, w: 10, d: 10, yaw: 5.5, tilt: 0.5 },
+    { x: 16, y: 33, z: 30, w: 7, d: 7, yaw: 3.6, tilt: -0.75 },
+    { x: -34, y: 13, z: -4, w: 8, d: 8, yaw: 0.8, tilt: 1.45 },    // the WALL: face points sideways
+    { x: 54, y: 17, z: -36, w: 11, d: 11, yaw: 1.2, tilt: 3.0 },   // the CEILING: near upside-down
+    { x: -42, y: 26, z: 44, w: 9, d: 9, yaw: 4.2, tilt: 0.9 },     // steep ramp
+    { x: 24, y: 14, z: 6, w: 6, d: 6, yaw: 2.8, tilt: 0.2 },       // little hop-stone
+    { x: 2, y: 28, z: -18, w: 13, d: 13, yaw: 1.7, tilt: -0.5 },   // the big tilted crown
   ],
 
   spawns: {

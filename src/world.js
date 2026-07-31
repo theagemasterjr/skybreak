@@ -640,29 +640,47 @@ export class World {
       const center = new THREE.Vector3(def.x, def.y, def.z);
       this.gravPlates.push({ center, normal, t1, t2, w: def.w, d: def.d, fieldH: FIELD_H });
 
-      const slab = new THREE.Mesh(
-        new THREE.BoxGeometry(def.w, 0.7, def.d),
-        new THREE.MeshStandardMaterial({
-          color: 0x7a3aff, emissive: 0x4a1e9a, emissiveIntensity: 0.7,
-          roughness: 0.5, metalness: 0.15, flatShading: true,
-        })
-      );
+      // crystalline hex slab: chunky faceted plate, painterly purple
+      const R = def.w / 2;
+      const slabGeo = new THREE.CylinderGeometry(R * 0.92, R * 1.1, 0.7, 6).toNonIndexed();
+      paintGeometry(slabGeo, new THREE.Color(0x8a4aff), new THREE.Color(0x3a1878), rng, 0.22);
+      const slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({
+        vertexColors: true, emissive: 0x2c1066, emissiveIntensity: 0.6,
+        roughness: 0.4, metalness: 0.25, flatShading: true,
+      }));
       slab.position.copy(center);
       slab.rotation.copy(e);
+      slab.rotateY(rng() * Math.PI);   // varied facet orientation
       slab.castShadow = true;
       slab.receiveShadow = true;
       this.root.add(slab);
-      // glowing top face
+      // glowing rune-ring on the pulling face
       const face = new THREE.Mesh(
-        new THREE.PlaneGeometry(def.w * 0.94, def.d * 0.94),
+        new THREE.RingGeometry(R * 0.45, R * 0.82, 6),
         new THREE.MeshBasicMaterial({
-          color: 0xa060ff, transparent: true, opacity: 0.22,
+          color: 0xb070ff, transparent: true, opacity: 0.4,
           blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
         })
       );
       face.rotation.x = -Math.PI / 2;
       face.position.y = 0.37;
       slab.add(face);
+      // crystal shards hanging beneath the plate, like a shattered keel
+      const shardMat = new THREE.MeshStandardMaterial({
+        color: 0x7a3aff, emissive: 0x5a20c0, emissiveIntensity: 1.1,
+        roughness: 0.3, metalness: 0.1, flatShading: true,
+      });
+      const nShards = 3 + Math.floor(rng() * 3);
+      for (let s = 0; s < nShards; s++) {
+        const size = (0.4 + rng() * 0.7) * (R / 4);
+        const shard = new THREE.Mesh(new THREE.OctahedronGeometry(size, 0), shardMat);
+        shard.geometry.scale(1, 1.8 + rng(), 1);
+        const a = rng() * Math.PI * 2;
+        shard.position.set(Math.cos(a) * R * (0.3 + rng() * 0.5), -0.7 - rng() * 1.2, Math.sin(a) * R * (0.3 + rng() * 0.5));
+        shard.rotation.set((rng() - 0.5) * 0.5, rng() * Math.PI, (rng() - 0.5) * 0.5);
+        shard.castShadow = true;
+        slab.add(shard);
+      }
       const light = new THREE.PointLight(0xa060ff, 9, FIELD_H + def.w, 2);
       light.position.copy(center).addScaledVector(normal, 2);
       this.root.add(light);
