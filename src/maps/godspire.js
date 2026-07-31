@@ -13,14 +13,20 @@ const TOWER_R_BASE = 14;
 const TOWER_R_TOP = 9;
 const towerR = (y) => TOWER_R_BASE - (TOWER_R_BASE - TOWER_R_TOP) * (y / TOWER_H);
 
-// a walkable marble disc: mesh into root + a static platform collider
-function addLedge(world, root, mat, x, z, baseY, R) {
+// a walkable marble disc: mesh into root + a platform collider. motion gives
+// it life: amp/speed/phase = rise and fall, spin = slow rotation (cosmetic —
+// discs are round, so spinning never changes the collision)
+function addLedge(world, root, mat, x, z, baseY, R, motion = {}) {
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.08, 0.7, 12), mat);
   mesh.position.set(x, baseY, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   root.add(mesh);
-  world.platforms.push({ x, z, baseY, R, amp: 0, speed: 0, phase: 0, mesh: null });
+  world.platforms.push({
+    x, z, baseY, R,
+    amp: motion.amp ?? 0, speed: motion.speed ?? 0, phase: motion.phase ?? 0,
+    spin: motion.spin ?? 0, mesh,
+  });
 }
 
 export const GODSPIRE = {
@@ -98,33 +104,43 @@ export const GODSPIRE = {
       world.columns.push({ x: 0, z: 0, r: towerR(y0), yBottom: y0, yTop: y1 });
     }
 
-    // ---- spiral ledges winding up the outside ----
+    // ---- spiral ledges winding up the outside: alive — rising, falling,
+    // slowly turning, each on its own rhythm ----
     for (let i = 0; i < 14; i++) {
       const y = 4 + i * 4.6;
       const a = 0.5 + i * 0.9;
       const r = towerR(y) + 2.1;
-      addLedge(world, root, marbleA, Math.cos(a) * r, Math.sin(a) * r, y, 3.1);
+      addLedge(world, root, marbleA, Math.cos(a) * r, Math.sin(a) * r, y, 3.1, {
+        amp: 0.9 + (i % 3) * 0.3, speed: 0.3 + (i % 4) * 0.07, phase: i * 1.3,
+        spin: i % 2 ? 0.45 : -0.35,
+      });
     }
-    // two dueling balconies at mid-height, facing each other
-    addLedge(world, root, marbleB, 16, 0, 22.5, 3.6);
-    addLedge(world, root, marbleB, -16, 0, 22.5, 3.6);
+    // two dueling balconies at mid-height, facing each other (phase 0 keeps
+    // them at their base height at round start, right under the spawns)
+    addLedge(world, root, marbleB, 16, 0, 22.5, 3.6, { amp: 0.7, speed: 0.35, phase: 0, spin: 0.25 });
+    addLedge(world, root, marbleB, -16, 0, 22.5, 3.6, { amp: 0.7, speed: 0.35, phase: 0, spin: -0.25 });
 
     // ---- broken bridges toward the satellite islands ----
     const bridges = [
       { a: 0.3, y: 17.5 }, { a: 2.4, y: 29.5 }, { a: 4.5, y: 41.5 },
     ];
+    let bIdx = 0;
     for (const b of bridges) {
       const from = towerR(b.y) + 1.5;
       for (let i = 0; i < 4; i++) {
         // skip one span per bridge so it reads "broken" (a real jump)
         if (i === 2) continue;
         const d = from + 4 + i * 7.5;
-        addLedge(world, root, marbleB, Math.cos(b.a) * d, Math.sin(b.a) * d, b.y - i * 0.5, 2.3);
+        // each bridge breathes as one (shared phase), gently
+        addLedge(world, root, marbleB, Math.cos(b.a) * d, Math.sin(b.a) * d, b.y - i * 0.5, 2.3, {
+          amp: 0.45, speed: 0.3, phase: bIdx * 2.1, spin: 0.15,
+        });
       }
+      bIdx++;
     }
 
-    // ---- the crown: top platform + pulsing beacon ----
-    addLedge(world, root, marbleA, 0, 0, TOWER_H + 0.5, 6.2);
+    // ---- the crown: top platform (a slow, majestic turn) + pulsing beacon ----
+    addLedge(world, root, marbleA, 0, 0, TOWER_H + 0.5, 6.2, { spin: 0.12 });
     const beaconMat = new THREE.MeshStandardMaterial({
       color: 0xffd76a, emissive: 0xffb830, emissiveIntensity: 1.8,
       roughness: 0.25, metalness: 0.2, flatShading: true,

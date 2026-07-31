@@ -743,6 +743,7 @@ export class World {
         p.mesh.position.x = pos.x;
         p.mesh.position.z = pos.z;
       }
+      if (p.spin) p.mesh.rotation.y += dt * p.spin;
     }
     // animated gravity-field visuals (belt map)
     for (const f of this.fieldFx) f.update(dt, this.clock);

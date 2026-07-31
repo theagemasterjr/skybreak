@@ -25,7 +25,7 @@ const VENTS = [
 
 const CYCLE = 9;        // seconds per full geyser cycle
 const WARN_T = 1.5;     // steam warning before the blast
-const BLAST_T = 2;      // eruption duration
+const BLAST_T = 3.2;    // eruption duration — long enough to ride deliberately
 
 class EmberHazards {
   constructor(world, game) {

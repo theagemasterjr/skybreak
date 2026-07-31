@@ -16,6 +16,7 @@ const RADIUS = 0.5;
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _grav = new THREE.Vector3(0, -1, 0);
+const _ppOut = { x: 0, z: 0 };
 const _up = new THREE.Vector3(0, 1, 0);
 const _q1 = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
@@ -462,6 +463,35 @@ export class Player {
         this.position.x = isl.x + nx * targetD;
         this.position.z = isl.z + nz * targetD;
         // cancel velocity into the island
+        const into = this.vel.x * nx + this.vel.z * nz;
+        if (into < 0) { this.vel.x -= into * nx; this.vel.z -= into * nz; }
+      }
+    }
+
+    // ---- platform solid volume ------------------------------------
+    // Platforms were one-sided heightfields: you could fly up through a
+    // garden's belly and pop out on top. Treat the disc down to its rocky
+    // underside as solid and resolve through the nearest surface.
+    for (const p of this.world.platforms) {
+      const pos = this.world.platformPosAt(p, this.world.clock, _ppOut);
+      const dx = this.position.x - pos.x, dz = this.position.z - pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > p.R) continue;
+      const top = this.world.platformHeightAt(p, this.position.x, this.position.z);
+      if (top === null || this.position.y >= top - 0.05) continue;
+      const belly = top - Math.min(p.R * 0.9, 4);
+      const head = this.position.y + EYE_HEIGHT;
+      if (head <= belly) continue;
+      const dDown = head - belly;         // exit downward through the belly
+      const dSide = p.R - dist;           // exit sideways past the rim
+      if (dDown <= dSide) {
+        this.position.y = belly - EYE_HEIGHT;
+        if (this.vel.y > 0) this.vel.y = 0;
+      } else {
+        const nx = dist > 0.0001 ? dx / dist : 1;
+        const nz = dist > 0.0001 ? dz / dist : 0;
+        this.position.x = pos.x + nx * (p.R + 0.05);
+        this.position.z = pos.z + nz * (p.R + 0.05);
         const into = this.vel.x * nx + this.vel.z * nz;
         if (into < 0) { this.vel.x -= into * nx; this.vel.z -= into * nz; }
       }

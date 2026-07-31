@@ -134,12 +134,16 @@ class MawHazard {
     _v1.copy(p.position); _v1.y += 1;
     const d = _v1.distanceTo(this.center);
     if (d < this.pullR) {
+      // a REAL pull: heavy acceleration, gravity softened, and the walk-speed
+      // cap lifted (windBoostT) so the clamp can't fight the infall
       _v2.copy(this.center).sub(_v1).normalize();
-      p.vel.addScaledVector(_v2, dt * (16 + 55 * (1 - d / this.pullR)));
+      p.vel.addScaledVector(_v2, dt * (45 + 130 * (1 - d / this.pullR)));
+      p.windBoostT = 0.25;
+      p.slowFall(0.2);
       if (Math.random() < dt * 8) {
         g.effects.glow(p.position.clone().add(_v1.set(0, 1, 0)), { color: 0xa060ff, size: 0.6, life: 0.15 });
       }
-      if (d < 1.5) {
+      if (d < 2.2) {
         this.holding = true;
         this.holdT = 1.0;
         p.root(1.2);

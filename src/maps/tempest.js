@@ -74,22 +74,24 @@ class TempestHazards {
     this.nextFlickerAt = 3 + world.hazardRng() * 6;
   }
 
-  // wind velocity at a position (or null): nearest polyline segment within r
-  windAt(pos, out) {
+  // the nearest river point within reach, or null:
+  // { closest, tangent, speed } — everything needed to ride the current
+  grabAt(pos) {
+    let best = null, bestD2 = Infinity;
     for (const w of this.winds) {
       for (let i = 0; i < w.pts.length - 1; i++) {
         const a = w.pts[i], b = w.pts[i + 1];
         _seg.copy(b).sub(a);
-        const len2 = _seg.lengthSq();
-        const t = Math.max(0, Math.min(1, _v1.copy(pos).sub(a).dot(_seg) / len2));
+        const t = Math.max(0, Math.min(1, _v1.copy(pos).sub(a).dot(_seg) / _seg.lengthSq()));
         _v2.copy(a).addScaledVector(_seg, t);
-        if (pos.distanceToSquared(_v2) < w.r * w.r) {
-          out.copy(_seg).normalize().multiplyScalar(w.speed);
-          return true;
+        const d2 = pos.distanceToSquared(_v2);
+        if (d2 < w.r * w.r && d2 < bestD2) {
+          bestD2 = d2;
+          best = { closest: _v2.clone(), tangent: _seg.clone().normalize(), speed: w.speed };
         }
       }
     }
-    return false;
+    return best;
   }
 
   pointAlong(w, d, out) {
@@ -106,10 +108,18 @@ class TempestHazards {
     const world = this.world, g = this.game;
     const clock = world.hazardClock;
 
-    // ---- wind: push the player, raise their speed cap, soften gravity ----
+    // ---- wind: the current GRABS you and carries you along its path ----
+    // Velocity is steered smoothly toward "flow along the river + drift back
+    // to its axis", so you follow the curve instead of getting chucked in a
+    // straight line. A dash overrides your velocity entirely (dash code owns
+    // it every frame), so dashing is always your way out — but end a dash
+    // inside the current and it takes hold again.
     const p = g.player;
-    if (p.alive && this.windAt(p.position, _v1)) {
-      p.vel.addScaledVector(_v1, dt * 2.6);
+    const grab = (p.alive && p.dashTimer <= 0) ? this.grabAt(p.position) : null;
+    if (grab) {
+      _v1.copy(grab.tangent).multiplyScalar(grab.speed)
+        .addScaledVector(_v2.copy(grab.closest).sub(p.position), 2.2);
+      p.vel.lerp(_v1, 1 - Math.exp(-5 * dt));
       p.windBoostT = 0.25;
       p.slowFall(0.2);
       if (Math.random() < dt * 6) {
