@@ -160,6 +160,9 @@ export class PlayerCombat {
 
   tryCast(slot, chargePower = 0) {
     if (this.cooldowns[slot] > 0) return;
+    // tutorial objectives need the cast noted BEFORE execute so damage dealt
+    // inside the ability can be attributed to it
+    this.game.emitTut?.('cast', { slot, power: chargePower });
     const ctx = this._ctx();
     ctx.chargePower = chargePower;   // 0..1, only >0 for charged releases
     let def, cd;

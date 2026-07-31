@@ -1,30 +1,21 @@
 import * as THREE from 'three';
 import { TrainingDummy } from './dummy.js';
 import { DUMMY_SPOTS } from './maps/training.js';
+import { TUTORIAL_SCRIPTS, ObjectiveTracker } from './tutorials.js';
 
 // ---------------------------------------------------------------------------
-// Tutorial: a lightweight practice mode on the training grounds. No waves, no
-// death pressure — just movement, one class's basic combat, and stationary
-// dummies to hit. Dummies live in game.enemies (the same array every hit-scan
-// function in playerCombat.js reads), so real attack/ability code works on
-// them unmodified.
+// Tutorial: guided objective mode on the training grounds. A script from
+// tutorials.js drives a checklist card; steps tick off only when the player
+// actually performs them (events tapped via game.emitTut). scriptId 'free'
+// skips objectives entirely — just dummies and freedom.
+// Dummies live in game.enemies, so real attack/ability code hits them.
 // ---------------------------------------------------------------------------
-
-const _v1 = new THREE.Vector3();
-
-const STEPS = [
-  { title: 'MOVE & JUMP', body: 'WASD to move · SPACE to jump (press again mid-air to double jump)' },
-  { title: 'AIR DASH', body: 'SHIFT to dash — works on the ground or in the air, and refills over time' },
-  { title: 'ATTACK & ABILITY', body: 'MOUSE to attack the dummies · Q for your ability (hold Q to charge it up)' },
-  { title: 'HAVE AT IT', body: 'Hit the dummies to try combos. ESC or EXIT TUTORIAL any time to leave.' },
-];
 
 export class Tutorial {
   constructor(game, uiRoot) {
     this.game = game;
     this.dummies = [];
-    this.t = 0;
-    this.stepIdx = 0;
+    this.tracker = null;
 
     if (!document.getElementById('tutorial-style')) {
       const style = document.createElement('style');
@@ -35,11 +26,17 @@ export class Tutorial {
         #tutorial-card {
           position: absolute; left: 50%; bottom: 42px; transform: translateX(-50%);
           background: var(--ink-80, rgba(13,16,34,0.8)); border: 1px solid rgba(255,255,255,0.12);
-          border-top: 2px solid var(--gold, #ffd76a); padding: 14px 26px; min-width: 380px;
+          border-top: 2px solid var(--gold, #ffd76a); padding: 12px 26px 14px; min-width: 420px;
           text-align: center; font-family: "Segoe UI", system-ui, sans-serif; color: var(--text, #f6eee0);
         }
-        #tutorial-card h3 { font-size: 0.85rem; letter-spacing: 0.08em; color: var(--gold, #ffd76a); margin-bottom: 6px; }
-        #tutorial-card p { font-size: 0.92rem; color: var(--text-dim, #c9bda8); }
+        #tutorial-card h3 { font-size: 0.8rem; letter-spacing: 0.1em; color: var(--gold, #ffd76a); margin-bottom: 5px; }
+        #tutorial-done { font-size: 0.78rem; color: #7fae7f; line-height: 1.5; }
+        #tutorial-done div { opacity: 0.85; }
+        #tutorial-step { font-size: 1.0rem; color: var(--text, #f6eee0); margin-top: 4px; }
+        #tutorial-step b { color: var(--gold, #ffd76a); margin-left: 8px; }
+        #tutorial-step.complete { color: #9fe8a8; }
+        #tutorial-card .flashline { animation: tut-flash 0.5s; }
+        @keyframes tut-flash { 0% { text-shadow: 0 0 18px #ffd76a; } 100% { text-shadow: none; } }
         #tutorial-exit {
           position: absolute; top: 18px; right: 18px; pointer-events: auto; cursor: pointer;
           background: rgba(13,16,34,0.8); border: 1px solid rgba(255,255,255,0.16); color: var(--text, #f6eee0);
@@ -54,20 +51,22 @@ export class Tutorial {
     this.el = document.createElement('div');
     this.el.id = 'tutorial-overlay';
     this.el.innerHTML = `
-      <div id="tutorial-card"><h3></h3><p></p></div>
+      <div id="tutorial-card">
+        <h3></h3>
+        <div id="tutorial-done"></div>
+        <p id="tutorial-step"></p>
+      </div>
       <button id="tutorial-exit">EXIT TUTORIAL</button>
     `;
     uiRoot.appendChild(this.el);
-    this.cardTitle = this.el.querySelector('#tutorial-card h3');
-    this.cardBody = this.el.querySelector('#tutorial-card p');
+    this.cardTitle = this.el.querySelector('h3');
+    this.doneEl = this.el.querySelector('#tutorial-done');
+    this.stepEl = this.el.querySelector('#tutorial-step');
     this.el.querySelector('#tutorial-exit').addEventListener('click', () => this.game.toMenu());
   }
 
-  start() {
+  start(scriptId = 'basics') {
     const g = this.game;
-    this.t = 0;
-    this.stepIdx = 0;
-    this._renderStep();
     this.el.classList.add('active');
 
     this.dummies = DUMMY_SPOTS.map(([x, z]) => {
@@ -75,23 +74,70 @@ export class Tutorial {
       return new TrainingDummy(g, new THREE.Vector3(x, y, z), 'PRACTICE DUMMY');
     });
     for (const d of this.dummies) g.enemies.push(d);
+
+    const script = TUTORIAL_SCRIPTS[scriptId] || null;
+    this.script = script;
+    this.tracker = script
+      ? new ObjectiveTracker(script, g, {
+          onRender: () => this._render(),
+          onStepDone: () => this._stepDoneFx(),
+          onComplete: () => this._completeFx(),
+        })
+      : null;
+    this._render();
   }
 
-  _renderStep() {
-    const s = STEPS[this.stepIdx];
-    this.cardTitle.textContent = s.title;
-    this.cardBody.textContent = s.body;
+  // real gameplay events (jumps, dashes, casts, dummy hits) route here
+  onEvent(type, data) {
+    this.tracker?.onEvent(type, data);
+  }
+
+  _render() {
+    const t = this.tracker;
+    if (!t) {
+      this.cardTitle.textContent = 'FREE PRACTICE';
+      this.doneEl.innerHTML = '';
+      this.stepEl.innerHTML = 'Hit the dummies, try combos — ESC any time to leave';
+      return;
+    }
+    this.cardTitle.textContent = `${this.script.title} — TUTORIAL`;
+    // last few completed steps as a ✓ trail
+    const doneSteps = this.script.steps.slice(0, t.idx).slice(-3);
+    this.doneEl.innerHTML = doneSteps.map((s) => `<div>✓ ${s.text}</div>`).join('');
+    if (t.done) {
+      this.stepEl.className = 'complete flashline';
+      this.stepEl.innerHTML = '✦ ALL OBJECTIVES COMPLETE — the grounds are yours';
+    } else {
+      const prog = t.progressText();
+      this.stepEl.className = '';
+      this.stepEl.innerHTML = `${t.step.text}${prog ? ` <b>${prog}</b>` : ''}`;
+    }
+  }
+
+  _stepDoneFx() {
+    const g = this.game;
+    g.hud?.flash('rgba(255, 215, 106, 0.14)', 0.3);
+    g.audio?.play('chargeFull');
+    this._render();
+    // retrigger the flash animation on the step line
+    this.stepEl.classList.remove('flashline');
+    void this.stepEl.offsetWidth;
+    this.stepEl.classList.add('flashline');
+  }
+
+  _completeFx() {
+    const g = this.game;
+    g.hud?.announce('TUTORIAL COMPLETE', '');
+    g.audio?.play('waveClear');
+    const c = g.player.position.clone(); c.y += 1.2;
+    g.effects.burst(c, { count: 30, color: 0xffd76a, color2: 0xfff3c8, speed: 8, size: 0.3, life: 0.6, gravity: -2 });
+    g.effects.ring(c, { color: 0xffd76a, endRadius: 5, life: 0.6 });
+    this._render();
   }
 
   // called every frame while game.state === 'tutorial'
   update(dt) {
-    this.t += dt;
-    // advance the step prompt on a timer; the last step just stays up
-    const nextAt = [0, 6, 12, 19][this.stepIdx + 1];
-    if (nextAt !== undefined && this.t >= nextAt) {
-      this.stepIdx++;
-      this._renderStep();
-    }
+    this.tracker?.update();
     // gentle passive heal so falling off the edge never feels punishing
     const p = this.game.player;
     if (p.health < p.maxHealth) p.heal(dt * 40);
@@ -100,5 +146,6 @@ export class Tutorial {
   exit() {
     this.el.classList.remove('active');
     this.dummies.length = 0;   // actual disposal happens via game._clearBattlefield()
+    this.tracker = null;
   }
 }

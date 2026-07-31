@@ -47,6 +47,7 @@ export class Game {
 
     // movement juice: hooks from the player controller into VFX
     this.player.onDash = (dir) => {
+      this.emitTut('dash');
       this.effects.dashStreaks(this.camera);
       const feet = this.player.position.clone(); feet.y += 0.15;
       this.effects.ring(feet, { color: 0xaadcff, startRadius: 0.3, endRadius: 1.8, life: 0.32, opacity: 0.55, thickness: 0.25 });
@@ -54,6 +55,7 @@ export class Game {
       this.audio?.play('dash');
     };
     this.player.onJump = (isDouble) => {
+      this.emitTut(isDouble ? 'doubleJump' : 'jump');
       const feet = this.player.position.clone(); feet.y += 0.1;
       if (isDouble) {
         this.effects.ring(feet, { color: 0xffffff, startRadius: 0.2, endRadius: 1.3, life: 0.28, opacity: 0.45, thickness: 0.2 });
@@ -62,6 +64,7 @@ export class Game {
       this.audio?.play(isDouble ? 'doubleJump' : 'jump');
     };
     this.player.onLand = (speed) => {
+      this.emitTut('land');
       const feet = this.player.position.clone(); feet.y += 0.1;
       const k = Math.min(1, speed / 30);
       this.effects.burst(feet, {
@@ -177,6 +180,11 @@ export class Game {
   setClass(classId) {
     if (this.combat) this.combat.dispose();
     this.combat = new PlayerCombat(this, classId);
+  }
+
+  // tutorial event tap: jumps, dashes, casts, dummy hits (no-op elsewhere)
+  emitTut(type, data) {
+    if (this.state === 'tutorial') this.tutorial?.onEvent(type, data);
   }
 
   spawnEnemy(type, pos, opts = {}) {

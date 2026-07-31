@@ -24,7 +24,9 @@ export class TrainingDummy {
     this.maxHp = maxHp;
     this.hp = this.maxHp;
     this.flashT = 0;
+    this.regenDelay = 0;
     this.label = label;
+    this.home = this.position.clone();   // drift back here after being launched
 
     const group = new THREE.Group();
     const wood = new THREE.MeshStandardMaterial({ color: 0x7a5636, roughness: 0.9, flatShading: true });
@@ -123,6 +125,14 @@ export class TrainingDummy {
     // slow auto-regen so the dummy is always ready to practice on again
     if (this.regenDelay > 0) this.regenDelay -= dt;
     else if (this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.35 * dt);
+
+    // some abilities launch or drag targets around — glide back home once
+    // the action stops so the range is always set up for the next combo
+    if (this.regenDelay <= 0 && this.position.distanceToSquared(this.home) > 0.01) {
+      this.position.lerp(this.home, Math.min(1, dt * 2.5));
+      this.vel.set(0, 0, 0);
+    }
+    this.model.position.copy(this.position);
 
     const top = this.position.clone(); top.y += this.height + 0.55;
     this.barGroup.position.copy(top);
