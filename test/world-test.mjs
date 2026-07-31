@@ -6,12 +6,12 @@
 // 2d-context stub is enough to build full worlds under Node.
 
 const ctx2dStub = {
-  fillStyle: '', font: '', textAlign: '',
+  fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '',
   createRadialGradient: () => ({ addColorStop() {} }),
   createLinearGradient: () => ({ addColorStop() {} }),
   fillRect() {}, clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {},
-  quadraticCurveTo() {}, closePath() {}, fill() {}, arc() {}, stroke() {},
-  fillText() {},
+  quadraticCurveTo() {}, closePath() {}, fill() {}, arc() {}, ellipse() {},
+  stroke() {}, fillText() {},
 };
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => ctx2dStub }),

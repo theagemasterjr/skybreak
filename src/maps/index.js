@@ -3,6 +3,7 @@ import { TRAINING } from './training.js';
 import { TEMPEST } from './tempest.js';
 import { EMBER } from './ember.js';
 import { GODSPIRE } from './godspire.js';
+import { VOIDGARDEN } from './voidgarden.js';
 
 // ---------------------------------------------------------------------------
 // Map registry. A map def is data (env, islands, platforms, spawns) plus
@@ -17,13 +18,14 @@ export const MAP_DEFS = {
   tempest: TEMPEST,
   ember: EMBER,
   godspire: GODSPIRE,
+  voidgarden: VOIDGARDEN,
 };
 
 // every map id (harness / menus iterate this)
 export const MAPS = Object.keys(MAP_DEFS);
 
 // the multiplayer + solo-random pool (training grounds never rolls randomly)
-export const MP_MAPS = ['classic', 'tempest', 'ember', 'godspire'];
+export const MP_MAPS = ['classic', 'tempest', 'ember', 'godspire', 'voidgarden'];
 
 export function getMap(id) {
   return MAP_DEFS[id] || CLASSIC;
