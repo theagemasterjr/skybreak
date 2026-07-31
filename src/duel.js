@@ -145,7 +145,9 @@ export class Duel {
     killFxProps(this.avatar);   // stale rival props (orb, anchor) don't cross rounds
     if (this._fxBuf) this._fxBuf.length = 0;
 
-    // fresh hazard schedule per round, still seed-locked across both clients
+    // fresh hazard schedule per round, still seed-locked across both clients;
+    // clock rewind puts orbiting platforms back under the spawn points
+    g.world.clock = 0;
     g.world.resetHazards((this.seed || 1) + n);
 
     const table = g.world.mapDef.spawns.duel;

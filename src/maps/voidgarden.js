@@ -119,8 +119,9 @@ class MawHazard {
         // hurled out skyward in a random direction — never into the ground
         const yaw = Math.random() * Math.PI * 2;
         const el = (55 + Math.random() * 30) * (Math.PI / 180);
-        p.vel.set(Math.cos(yaw) * Math.cos(el), Math.sin(el), Math.sin(yaw) * Math.cos(el)).multiplyScalar(34);
-        p.invulnTimer = Math.max(p.invulnTimer, 0.4);
+        p.vel.set(Math.cos(yaw) * Math.cos(el), Math.sin(el), Math.sin(yaw) * Math.cos(el)).multiplyScalar(52);
+        p.slowFall(0.8);   // hang at the top of the throw — it should feel HUGE
+        p.invulnTimer = Math.max(p.invulnTimer, 0.5);
         g.effects.impactBurst(this.center.clone(), { color: 0xa060ff, size: 5 });
         g.effects.ring(this.center.clone(), { color: 0x55ddff, endRadius: 8, life: 0.5, thickness: 0.5 });
         g.hud?.flash('rgba(150, 90, 255, 0.2)', 0.3);

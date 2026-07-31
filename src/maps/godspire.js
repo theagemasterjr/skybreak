@@ -25,7 +25,7 @@ function addLedge(world, root, mat, x, z, baseY, R, motion = {}) {
   world.platforms.push({
     x, z, baseY, R,
     amp: motion.amp ?? 0, speed: motion.speed ?? 0, phase: motion.phase ?? 0,
-    spin: motion.spin ?? 0, mesh,
+    orbit: motion.orbit, mesh,
   });
 }
 
@@ -105,20 +105,26 @@ export const GODSPIRE = {
     }
 
     // ---- spiral ledges winding up the outside: alive — rising, falling,
-    // slowly turning, each on its own rhythm ----
+    // and slowly ORBITING the tower, each on its own rhythm ----
     for (let i = 0; i < 14; i++) {
       const y = 4 + i * 4.6;
       const a = 0.5 + i * 0.9;
       const r = towerR(y) + 2.1;
       addLedge(world, root, marbleA, Math.cos(a) * r, Math.sin(a) * r, y, 3.1, {
         amp: 0.9 + (i % 3) * 0.3, speed: 0.3 + (i % 4) * 0.07, phase: i * 1.3,
-        spin: i % 2 ? 0.45 : -0.35,
+        orbit: { cx: 0, cz: 0, r, angSpeed: (i % 2 ? 0.09 : -0.07) + (i % 3) * 0.01, phase: a },
       });
     }
-    // two dueling balconies at mid-height, facing each other (phase 0 keeps
-    // them at their base height at round start, right under the spawns)
-    addLedge(world, root, marbleB, 16, 0, 22.5, 3.6, { amp: 0.7, speed: 0.35, phase: 0, spin: 0.25 });
-    addLedge(world, root, marbleB, -16, 0, 22.5, 3.6, { amp: 0.7, speed: 0.35, phase: 0, spin: -0.25 });
+    // two dueling balconies circling at mid-height, opposite each other
+    // (orbit phase = their spawn angle, so round-start spawns land on them)
+    addLedge(world, root, marbleB, 16, 0, 22.5, 3.6, {
+      amp: 0.7, speed: 0.35, phase: 0,
+      orbit: { cx: 0, cz: 0, r: 16, angSpeed: 0.05, phase: 0 },
+    });
+    addLedge(world, root, marbleB, -16, 0, 22.5, 3.6, {
+      amp: 0.7, speed: 0.35, phase: 0,
+      orbit: { cx: 0, cz: 0, r: 16, angSpeed: 0.05, phase: Math.PI },
+    });
 
     // ---- broken bridges toward the satellite islands ----
     const bridges = [
@@ -133,14 +139,14 @@ export const GODSPIRE = {
         const d = from + 4 + i * 7.5;
         // each bridge breathes as one (shared phase), gently
         addLedge(world, root, marbleB, Math.cos(b.a) * d, Math.sin(b.a) * d, b.y - i * 0.5, 2.3, {
-          amp: 0.45, speed: 0.3, phase: bIdx * 2.1, spin: 0.15,
+          amp: 0.45, speed: 0.3, phase: bIdx * 2.1,   // bob only: bridges must keep pointing at their islands
         });
       }
       bIdx++;
     }
 
-    // ---- the crown: top platform (a slow, majestic turn) + pulsing beacon ----
-    addLedge(world, root, marbleA, 0, 0, TOWER_H + 0.5, 6.2, { spin: 0.12 });
+    // ---- the crown: top platform + pulsing beacon (the fixed prize) ----
+    addLedge(world, root, marbleA, 0, 0, TOWER_H + 0.5, 6.2);
     const beaconMat = new THREE.MeshStandardMaterial({
       color: 0xffd76a, emissive: 0xffb830, emissiveIntensity: 1.8,
       roughness: 0.25, metalness: 0.2, flatShading: true,
