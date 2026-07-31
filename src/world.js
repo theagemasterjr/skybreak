@@ -534,7 +534,10 @@ export class World {
         amp: def.amp ?? randRange(rng, 0.7, 1.4),
         speed: def.speed ?? randRange(rng, 0.35, 0.7),
         phase: def.phase ?? rng() * Math.PI * 2,
-        orbit: def.orbit,   // orbiting platforms circle a center point
+        // orbiting platforms circle a center point. CLONED per world: overtime
+        // events mutate orbit.r (the Maw reels gardens in), and sharing the
+        // def's object would corrupt every later rebuild of the map.
+        orbit: def.orbit ? { ...def.orbit } : undefined,
       };
       const island = { x: 0, z: 0, topY: 0, R, domeH: 0.35, edgeSeed: def.seed ?? Math.floor(rng() * 1000) };
       const geo = buildIslandGeometry(island, R * 2.2, island.edgeSeed, { bare: true, local: true }, this.palette);

@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { mulberry32, randRange } from '../utils.js';
+import { Overtime } from '../overtime.js';
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------
 // THE MAW: a black hole hanging over the central garden. Drift too close and
@@ -23,13 +25,17 @@ class MawHazard {
     this.t = 0;
 
     const fx = world.hazardFx;
+    // one group holds every Maw mesh so the whole thing can move (overtime
+    // sends it hunting); children sit at origin-relative positions
+    this.g = new THREE.Group();
+    this.g.position.copy(this.center);
+    fx.add(this.g);
     // the void core
     const core = new THREE.Mesh(
       new THREE.SphereGeometry(2.1, 20, 14),
       new THREE.MeshBasicMaterial({ color: 0x000000 })
     );
-    core.position.copy(this.center);
-    fx.add(core);
+    this.g.add(core);
     // event-horizon shimmer: an additive backside shell around the core
     const shell = new THREE.Mesh(
       new THREE.SphereGeometry(2.6, 20, 14),
@@ -38,8 +44,7 @@ class MawHazard {
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
       })
     );
-    shell.position.copy(this.center);
-    fx.add(shell);
+    this.g.add(shell);
     // twin accretion disks, counter-tilted
     this.disks = [];
     for (const [tilt, color, r] of [[0.5, 0xa060ff, 3.9], [-0.35, 0x55ddff, 3.1]]) {
@@ -50,14 +55,12 @@ class MawHazard {
           blending: THREE.AdditiveBlending, depthWrite: false,
         })
       );
-      disk.position.copy(this.center);
       disk.rotation.x = Math.PI / 2 + tilt;
-      fx.add(disk);
+      this.g.add(disk);
       this.disks.push(disk);
     }
     const light = new THREE.PointLight(0x9a5fff, 40, 60, 2);
-    light.position.copy(this.center);
-    fx.add(light);
+    this.g.add(light);
 
     // spiraling infall particles sketch the pull radius
     const N = 100;
@@ -74,16 +77,20 @@ class MawHazard {
       color: 0xc09aff, size: 0.42, transparent: true, opacity: 0.8,
       blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
     }));
-    fx.add(this.swirl);
+    this.g.add(this.swirl);
+
+    this.holdDps = 0;   // overtime turns the hold lethal
   }
 
   update(dt) {
     const g = this.game;
     this.t += dt;
+    this.g.position.copy(this.center);
     this.disks[0].rotation.z += dt * 1.4;
     this.disks[1].rotation.z -= dt * 1.9;
 
     // particles spiral inward, respawning at the field's edge
+    // (positions are center-relative: the whole group rides this.center)
     const attr = this.swirl.geometry.attributes.position;
     for (let i = 0; i < this.parts.length; i++) {
       const part = this.parts[i];
@@ -92,9 +99,9 @@ class MawHazard {
       if (part.r < 2.4) { part.r = this.pullR; part.ang = Math.random() * Math.PI * 2; part.y = (Math.random() - 0.5) * 4; }
       attr.setXYZ(
         i,
-        this.center.x + Math.cos(part.ang) * part.r,
-        this.center.y + part.y * (part.r / this.pullR),
-        this.center.z + Math.sin(part.ang) * part.r
+        Math.cos(part.ang) * part.r,
+        part.y * (part.r / this.pullR),
+        Math.sin(part.ang) * part.r
       );
     }
     attr.needsUpdate = true;
@@ -108,6 +115,12 @@ class MawHazard {
       _v1.copy(this.center); _v1.y -= 1; // feet at the heart
       p.position.lerp(_v1, 1 - Math.exp(-16 * dt));
       p.vel.set(0, 0, 0);
+      // overtime: the hold crushes
+      if (this.holdDps > 0 && p.alive) {
+        p.health -= this.holdDps * dt;
+        p.lastDamagedAt = g.simTime;
+        if (p.health <= 0) { p.health = 0; p.alive = false; p.onDeath?.(); }
+      }
       if (Math.random() < dt * 20) {
         g.effects.glow(this.center.clone().add(_v2.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3)), {
           color: 0xa060ff, size: 0.8, life: 0.2, grow: -0.8,
@@ -150,6 +163,101 @@ class MawHazard {
         p.root(1.2);
         g.audio?.play('windup');
         g.effects.ring(this.center.clone(), { color: 0xa060ff, endRadius: 5, life: 0.4, thickness: 0.4 });
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OVERTIME — THE MAW AWAKENS: the black hole swells, its pull reaching ever
+// further; it reels the five orbiting gardens in and crunches them one by
+// one. Its grip turns lethal. When nothing is left to eat, it goes hunting.
+// ---------------------------------------------------------------------------
+class MawOvertime extends Overtime {
+  begin() {
+    this.hunting = false;
+    this.hunt0 = 0;
+    const maw = this.world.hazards;
+    if (maw) {
+      maw.holdDps = 16;
+      maw.grace = Math.min(maw.grace, 2);
+    }
+  }
+
+  _nearestTarget() {
+    const g = this.game;
+    let best = g.player.alive ? g.player.position : null;
+    if (g.mode === 'botduel') {
+      for (const e of g.enemies) {
+        if (e.type !== 'duelist' || !e.alive) continue;
+        const maw = this.world.hazards;
+        if (!best || e.position.distanceTo(maw.center) < best.distanceTo(maw.center)) {
+          best = e.position;
+        }
+      }
+    }
+    return best;
+  }
+
+  tick(dt) {
+    const w = this.world, g = this.game;
+    const maw = w.hazards;
+    if (!maw) return;
+
+    // the Maw swells
+    maw.pullR += 0.45 * dt;
+    const k = 0.65 + (maw.pullR / 11) * 0.35;
+    maw.g.scale.setScalar(k);
+
+    // it reels the orbiting gardens in and eats them
+    let orbiting = 0;
+    for (let i = w.platforms.length - 1; i >= 0; i--) {
+      const p = w.platforms[i];
+      if (!p.orbit) continue;
+      orbiting++;
+      p.orbit.r -= 2.6 * dt;
+      if (p.orbit.r < 5) {
+        const pos = p.mesh ? p.mesh.position.clone() : _v3.set(p.x, p.baseY, p.z).clone();
+        g.effects.impactBurst(pos.clone(), { color: 0xa060ff, size: 5 });
+        g.effects.burst(pos.clone(), { count: 34, color: 0xc09aff, color2: 0x55ddff, speed: 12, size: 0.35, life: 0.6 });
+        g.effects.ring(maw.center.clone(), { color: 0xa060ff, endRadius: 7, life: 0.5, thickness: 0.5 });
+        g.player.shake(0.4);
+        g.audio?.play('explosion');
+        w.removePlatform(p);
+        if (p.mesh) p.mesh.visible = false;
+        this.log.push([Math.round(w.hazardClock), 'crunch']);
+        orbiting--;
+      }
+    }
+
+    // nothing left to eat: THE HUNT
+    if (!orbiting && !this.hunting) {
+      this.hunting = true;
+      this.hunt0 = this.t;
+      g.hud?.announce('THE MAW HUNGERS', 'sub');
+      this.log.push([Math.round(w.hazardClock), 'hunt']);
+    }
+    if (this.hunting) {
+      const target = this._nearestTarget();
+      if (target) {
+        const speed = Math.min(4.5, 1.8 + (this.t - this.hunt0) * 0.02);
+        _v3.copy(target).setY(target.y + 4).sub(maw.center);
+        const d = _v3.length();
+        if (d > 0.5) maw.center.addScaledVector(_v3.normalize(), Math.min(speed * dt, d));
+      }
+    }
+
+    // in a bot duel the Maw also drags the bot's body (its brain fights back)
+    if (g.mode === 'botduel') {
+      for (const e of g.enemies) {
+        if (e.type !== 'duelist' || !e.alive) continue;
+        _v3.copy(e.position).setY(e.position.y + 1);
+        const d = _v3.distanceTo(maw.center);
+        if (d < maw.pullR && e.brainVel) {
+          _v2.copy(maw.center).sub(_v3).normalize();
+          e.brainVel.addScaledVector(_v2, dt * (45 + 130 * (1 - d / maw.pullR)));
+          if (d < 2.5) e.takeDamage(maw.holdDps * dt, { source: 'hazard' });
+        }
       }
     }
   }
@@ -321,6 +429,10 @@ export const VOIDGARDEN = {
 
   makeHazards(world, game) {
     return new MawHazard(world, game);
+  },
+
+  makeOvertime(world, game) {
+    return new MawOvertime(world, game);
   },
 
   spawns: {
