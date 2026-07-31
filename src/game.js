@@ -226,7 +226,7 @@ export class Game {
 
   // practice mode: one default class, no waves, no death screen, a couple
   // of stationary dummies to hit. See src/tutorial.js.
-  startTutorial(classId = 'mage', scriptId = 'basics', mapId = 'classic') {
+  startTutorial(classId = 'mage', scriptId = 'basics', mapId = 'training') {
     this._clearBattlefield();
     this.loadMap(this._resolveMapParam(mapId));
     this.setClass(classId);

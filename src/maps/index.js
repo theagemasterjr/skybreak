@@ -1,4 +1,5 @@
 import { CLASSIC } from './classic.js';
+import { TRAINING } from './training.js';
 
 // ---------------------------------------------------------------------------
 // Map registry. A map def is data (env, islands, platforms, spawns) plus
@@ -9,6 +10,7 @@ import { CLASSIC } from './classic.js';
 
 export const MAP_DEFS = {
   classic: CLASSIC,
+  training: TRAINING,
 };
 
 // every map id (harness / menus iterate this)
