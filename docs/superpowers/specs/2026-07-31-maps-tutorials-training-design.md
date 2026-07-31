@@ -198,13 +198,18 @@ procedural canvas textures, instancing/merged geometry — same perf budget as C
   Opponents see it through the normal HP replication.
 - Solo and tutorial modes: no change (tutorial already has its own fast heal).
 
-## 6. Deferred: Asteroid map (own spec later)
+## 6. Asteroid map — Shattered Belt (built LAST, after everything else ships)
 
-Low gravity everywhere; "graviton rocks" bend your personal gravity toward them
-within a radius (walk on asteroid surfaces, slingshot fights), reverting smoothly
-when you leave. Requires vector gravity in the player controller, camera up-vector
-blending, and enemy/projectile decisions — scoped separately after the four maps
-ship and get playtested.
+User confirmed in scope, ordered last. Low gravity everywhere (≈45% normal);
+"graviton rocks" — special glowing asteroids that bend your personal gravity
+toward them within a radius (walk on asteroid surfaces, slingshot fights),
+smoothly reverting to normal down-gravity when you leave. Requires vector
+gravity in the player controller (gravity direction blends toward the nearest
+graviton rock's center), camera up-vector blending, and grounded checks against
+the rock surface. Enemies and projectiles keep normal gravity (player-only
+mechanic). Deep-space dusk palette, drifting rock field, faint nebula. Detailed
+physics design happens when its build phase starts, informed by playtests of the
+first four maps.
 
 ## Testing
 
@@ -227,3 +232,4 @@ ship and get playtested.
 5. The four maps, one at a time (Godspire and Voidgarden after step 2).
 6. Menus (solo map row, tutorial picker) + multiplayer random map sync.
 7. Regen + full test pass.
+8. Shattered Belt (asteroid map): vector gravity + graviton rocks — last.
