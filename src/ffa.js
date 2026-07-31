@@ -48,6 +48,35 @@ export class Ffa {
     this.spectateId = null;
     this.specYaw = 0;
     this.specPitch = -0.15;
+
+    // dead player practicing on the training grounds while the round runs
+    this._practice = false;
+  }
+
+  // ---------------- practice-while-dead ----------------
+  // A dead spectator can hop to the training grounds and hit dummies while
+  // the round plays out. The room's networking keeps running (the host even
+  // keeps refereeing from the range); when the round ends, _toLobby pulls
+  // them back like everyone else. Their own world swap is purely local.
+  enterPractice() {
+    const g = this.game;
+    if (this._practice || g.player.alive) return;
+    if (this.phase !== 'fighting' && this.phase !== 'roundover') return;
+    this._practice = true;
+    this._disposeAvatars();          // round avatars don't belong on the range
+    g.menus.hideAll();
+    g.player.suppressCamera = false;
+    if (g.combat) g.combat.viewmodel.group.visible = true;
+    g.hud.setSpectating?.(null);
+    g.loadMap('training');
+    g.player.respawn();              // local revival, on the range only
+    g.player.freeze = false;
+    g.input.enabled = true;
+    g.state = 'tutorial';            // practice loop + dummies; mode stays 'ffa'
+    g.hud.bindClass(g.combat.classDef, g.player.maxDashes);
+    g.hud.show();
+    g.tutorial.start('free');
+    g.input.requestLock();
   }
 
   get active() { return this.phase !== 'idle'; }
@@ -130,6 +159,7 @@ export class Ffa {
   _exitToMenu(reason) {
     this._disposeAvatars();
     const g = this.game;
+    this._practice = false;
     this.phase = 'idle';
     g.projectiles.onSpawn = null;
     g.playerFx = null;
@@ -290,41 +320,45 @@ export class Ffa {
     }
 
     if (this.phase === 'fighting') {
-      this._sendState(dt);
-      // kill credit fades: an old scratch shouldn't own a void fall minutes later
-      if (this._lastAttacker) {
-        this._lastAttacker.t -= dt;
-        if (this._lastAttacker.t <= 0) this._lastAttacker = null;
-      }
-
-      // incoming slow / poison (same as duel)
-      if (this._slowT > 0) {
-        this._slowT -= dt;
-        g.player.walkSpeed = this._baseWalkSpeed * 0.55;
-      } else if (this._baseWalkSpeed) {
-        g.player.walkSpeed = this._baseWalkSpeed;
-      }
-      if (this._poison && g.player.alive) {
-        this._poison.t -= dt;
-        g.player.health -= this._poison.dps * dt;
-        g.player.lastDamagedAt = g.simTime;
-        if (g.player.health <= 0) {
-          g.player.health = 0;
-          g.player.alive = false;
-          if (g.player.onDeath) g.player.onDeath();
+      // while practicing on the range, the round's personal state (snapshots,
+      // poison, regen, void) is suspended — but referee duties keep running
+      if (!this._practice) {
+        this._sendState(dt);
+        // kill credit fades: an old scratch shouldn't own a void fall minutes later
+        if (this._lastAttacker) {
+          this._lastAttacker.t -= dt;
+          if (this._lastAttacker.t <= 0) this._lastAttacker = null;
         }
-        if (this._poison.t <= 0) this._poison = null;
-      }
 
-      // out of combat 10s -> 1 hp/s trickle
-      if (g.player.alive && g.simTime - (g.player.lastDamagedAt ?? -999) >= 10) {
-        g.player.heal(1 * dt);
-      }
+        // incoming slow / poison (same as duel)
+        if (this._slowT > 0) {
+          this._slowT -= dt;
+          g.player.walkSpeed = this._baseWalkSpeed * 0.55;
+        } else if (this._baseWalkSpeed) {
+          g.player.walkSpeed = this._baseWalkSpeed;
+        }
+        if (this._poison && g.player.alive) {
+          this._poison.t -= dt;
+          g.player.health -= this._poison.dps * dt;
+          g.player.lastDamagedAt = g.simTime;
+          if (g.player.health <= 0) {
+            g.player.health = 0;
+            g.player.alive = false;
+            if (g.player.onDeath) g.player.onDeath();
+          }
+          if (this._poison.t <= 0) this._poison = null;
+        }
 
-      // void death
-      if (g.player.alive && g.player.position.y < -95) {
-        g.player.alive = false;
-        this.localDied();
+        // out of combat 10s -> 1 hp/s trickle
+        if (g.player.alive && g.simTime - (g.player.lastDamagedAt ?? -999) >= 10) {
+          g.player.heal(1 * dt);
+        }
+
+        // void death
+        if (g.player.alive && g.player.position.y < -95) {
+          g.player.alive = false;
+          this.localDied();
+        }
       }
 
       // host referee: end the round when at most one player stands
@@ -336,7 +370,7 @@ export class Ffa {
     }
 
     if (this.phase === 'roundover') {
-      this._sendState(dt);
+      if (!this._practice) this._sendState(dt);
       this._overT -= dt;
       if (this._overT <= 0) {
         this._overT = 999;   // fire once; host sends everyone back
@@ -351,9 +385,13 @@ export class Ffa {
 
   // camera override after all systems ran: third-person spectate
   lateUpdate(dt) {
+    if (this._practice) return;   // the range owns the camera while practicing
     if (this.phase !== 'fighting' && this.phase !== 'roundover') return;
     const g = this.game;
     if (g.player.alive || this.spectateId === null) return;
+
+    // click: jump to the next living fighter
+    if (g.input.attackPressed()) this._cycleSpectate();
 
     let target = this.avatars.get(this.spectateId);
     if (!target || !target.alive) {
@@ -389,6 +427,15 @@ export class Ffa {
       const cam = this.game.camera.position;
       this.specYaw = Math.atan2(cam.x - t.position.x, cam.z - t.position.z);
     }
+  }
+
+  // manual cycle through everyone still flying
+  _cycleSpectate() {
+    const ids = [...this.aliveIds].filter((id) => id !== this.net.meId && this.avatars.has(id));
+    if (!ids.length) return;
+    const i = ids.indexOf(this.spectateId);
+    const next = ids[(i + 1) % ids.length];
+    if (next !== this.spectateId) this._setSpectate(next);
   }
 
   _retargetSpectate() {
@@ -438,9 +485,10 @@ export class Ffa {
         break;
       }
       case 'proj':
-        this._spawnRemoteProjectile(m.o);
+        if (!this._practice) this._spawnRemoteProjectile(m.o);
         break;
       case 'fx':
+        if (this._practice) break;   // round FX would ghost onto the range
         if (this.phase === 'fighting' || this.phase === 'countdown' || this.phase === 'roundover') {
           applyFx(this.game, m.l, this.avatars.get(fromId) || null);
         }
@@ -485,7 +533,7 @@ export class Ffa {
   }
 
   _applyHit(m, fromId) {
-    if (this.phase !== 'fighting') return;
+    if (this.phase !== 'fighting' || this._practice) return;
     const g = this.game;
     const p = g.player;
     if (!p.alive) return;
@@ -540,7 +588,7 @@ export class Ffa {
   // ---------------- deaths ----------------
   // my player died (combat damage, poison, or the void)
   localDied() {
-    if (this.phase !== 'fighting') return;
+    if (this.phase !== 'fighting' || this._practice) return;
     const g = this.game;
     const meId = this.net.meId;
     const killer = (this._lastAttacker && this._lastAttacker.t > 0) ? this._lastAttacker.id : null;
@@ -630,6 +678,11 @@ export class Ffa {
 
   _toLobby() {
     const g = this.game;
+    // round over pulls a practicing player off the range like everyone else
+    if (this._practice) {
+      this._practice = false;
+      g.tutorial.exit();
+    }
     this.phase = 'lobby';
     if (this.isHost) this.net.roomInfoExtra.inRound = false;
     this._disposeAvatars();

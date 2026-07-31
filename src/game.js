@@ -139,7 +139,10 @@ export class Game {
         else if (this.mode === 'ffa') this.menus.show('mppause');
         else this.pause();
       } else if (!locked && this.state === 'tutorial') {
-        this.toMenu();
+        // practicing while dead in an FFA round: Esc opens the room menu, it
+        // must NOT desert the room (toMenu would sever the net session)
+        if (this.mode === 'ffa' && this.ffa._practice) this.menus.show('mppause');
+        else this.toMenu();
       }
     });
     canvas.addEventListener('click', () => {

@@ -83,6 +83,18 @@ export function rollSpin(state, rand = Math.random) {
   return { kind, icon, good, reels, label: RESULT_LABELS[kind][icon] };
 }
 
+// Build a specific spin result (tutorials rig the machine so objectives
+// like "land a jackpot" are guaranteed instead of a luck grind)
+export function forcedSpin(kind, icon) {
+  const loser = icon === 'cherry' ? 'skull' : 'cherry';
+  return {
+    kind, icon,
+    good: kind === 'jackpot' || GOOD_ICONS.includes(icon),
+    reels: kind === 'jackpot' ? [icon, icon, icon] : [icon, icon, loser],
+    label: RESULT_LABELS[kind][icon],
+  };
+}
+
 // PvP (duel/ffa): jackpots run shorter and hit softer — luck shouldn't
 // decide a round on its own
 const pvpMul = (ctx) => (ctx.game.mode === 'solo' ? 1 : 0.62);
@@ -754,7 +766,9 @@ export const gamblerClass = {
       slot: 'Q', name: 'Pull the Lever', cooldown: 4,
       desc: 'Spin the slot machine. Two-in-a-row: something small — usually good, sometimes a curse. Three-in-a-row: a jackpot, never bad. What lands is pure luck.',
       execute(ctx, state) {
-        const res = rollSpin(state, Math.random);
+        // the tutorial preloads a queue of chosen results; real play rolls
+        const rig = ctx.game.tutorialSpins;
+        const res = rig && rig.length ? rig.shift() : rollSpin(state, Math.random);
         ctx.viewmodel.trigger('cast');
         ctx.game.hud?.spinSlots(res);
         ctx.audio?.play('chargeStart');

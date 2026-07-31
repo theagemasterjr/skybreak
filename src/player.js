@@ -103,11 +103,18 @@ export class Player {
   forwardDir(includePitch = true) {
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
-    if (includePitch) return new THREE.Vector3(-sy * cp, sp, -cy * cp).normalize();
-    return new THREE.Vector3(-sy, 0, -cy).normalize();
+    const dir = includePitch
+      ? new THREE.Vector3(-sy * cp, sp, -cy * cp)
+      : new THREE.Vector3(-sy, 0, -cy);
+    // bent gravity (graviton walls/ceilings): rotate into the local frame so
+    // "forward" matches what the flipped camera shows — otherwise controls
+    // invert the moment your up isn't the world's up
+    if (this.up.y <= 0.999) dir.applyQuaternion(_q1.setFromUnitVectors(_up, this.up));
+    return dir.normalize();
   }
 
-  // Wish direction from WASD, camera-relative. flat=true keeps it horizontal.
+  // Wish direction from WASD, camera-relative. flat=true keeps it in the
+  // ground plane — the LOCAL ground plane when gravity is bent.
   wishDir(flat = true) {
     const f = this.input.down('forward') ? 1 : 0;
     const b = this.input.down('back') ? 1 : 0;
@@ -118,8 +125,9 @@ export class Player {
     const dir = new THREE.Vector3();
     const forward = this.forwardDir(!flat);
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    if (this.up.y <= 0.999) right.applyQuaternion(_q1.setFromUnitVectors(_up, this.up));
     dir.addScaledVector(forward, fwd).addScaledVector(right, side);
-    if (flat) dir.y = 0;
+    if (flat && this.up.y > 0.999) dir.y = 0;
     return dir.lengthSq() > 0 ? dir.normalize() : null;
   }
 
@@ -325,6 +333,8 @@ export class Player {
       if (wish && !stalled) {
         this.vel.x += wish.x * accel * dt;
         this.vel.z += wish.z * accel * dt;
+        // in a bent frame the local ground plane has a vertical component
+        if (this.up.y <= 0.999) this.vel.y += wish.y * accel * dt;
       }
       // air-stall locks you in place: you hang, you don't drift
       if (stalled) {
@@ -345,10 +355,19 @@ export class Player {
         hv.multiplyScalar(newSpeed / hs);
         this.vel.x = hv.x; this.vel.z = hv.z;
       }
-      // friction when idle on ground
+      // friction when idle on ground — graviton surfaces grip harder so you
+      // don't skate off a tilted plate with your landing momentum
       if (this.grounded && !wish) {
-        const f = Math.exp(-9 * dt);
-        this.vel.x *= f; this.vel.z *= f;
+        const f = Math.exp((this._onRock ? -16 : -9) * dt);
+        if (this.up.y > 0.999) {
+          this.vel.x *= f; this.vel.z *= f;
+        } else {
+          // damp only the tangential part of velocity (the local "sideways"),
+          // leaving motion along the surface normal to gravity + landing
+          const n = this.vel.dot(this.up);
+          _v2.copy(this.up).multiplyScalar(n);
+          this.vel.sub(_v2).multiplyScalar(f).add(_v2);
+        }
       }
       // gravity (reduced heavily during air-stall, softly during slow-fall);
       // direction + strength come from the world so graviton rocks can bend

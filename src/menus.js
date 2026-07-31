@@ -291,6 +291,7 @@ export class Menus {
         <h2 class="pause-title">STANDING DOWN</h2>
         <p class="duelpause-warn">the duel continues without you!</p>
         <button class="btn primary" id="btn-duel-resume">BACK TO THE FIGHT</button>
+        <button class="btn" id="btn-duel-codex">CODEX</button>
         <button class="btn" id="btn-duel-forfeit">FORFEIT MATCH</button>
       </div>
     `;
@@ -299,6 +300,7 @@ export class Menus {
       this.hideAll();
       this.game.input.requestLock();
     });
+    s.querySelector('#btn-duel-codex').addEventListener('click', () => this.openCodex('duelpause'));
     s.querySelector('#btn-duel-forfeit').addEventListener('click', () => this.game.duel.leave());
   }
 
@@ -448,6 +450,8 @@ export class Menus {
         <h2 class="pause-title">STANDING DOWN</h2>
         <p class="duelpause-warn">the round continues without you!</p>
         <button class="btn primary" id="btn-mp-resume">BACK TO THE FIGHT</button>
+        <button class="btn" id="btn-mp-practice">PRACTICE RANGE</button>
+        <button class="btn" id="btn-mp-codex">CODEX</button>
         <button class="btn" id="btn-mp-leave">LEAVE ROOM</button>
       </div>
     `;
@@ -456,6 +460,8 @@ export class Menus {
       this.hideAll();
       this.game.input.requestLock();
     });
+    s.querySelector('#btn-mp-practice').addEventListener('click', () => this.game.ffa.enterPractice());
+    s.querySelector('#btn-mp-codex').addEventListener('click', () => this.openCodex('mppause'));
     s.querySelector('#btn-mp-leave').addEventListener('click', () => this.game.ffa.leaveRoom());
   }
 
@@ -652,6 +658,13 @@ export class Menus {
     for (const k in this.screens) this.screens[k].classList.toggle('active', k === name);
     this.el.classList.add('active');
     if (name === 'main') this._fillMainStats();
+    if (name === 'mppause') {
+      // the practice range is a dead-spectator perk (mid-round only)
+      const ffa = this.game.ffa;
+      const canPractice = !this.game.player.alive && !ffa._practice
+        && (ffa.phase === 'fighting' || ffa.phase === 'roundover');
+      this.el.querySelector('#btn-mp-practice').style.display = canPractice ? '' : 'none';
+    }
     if (name === 'select') {
       this._fillBests();
       // solo entry: clear any leftover duel dressing

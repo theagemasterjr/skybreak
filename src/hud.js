@@ -34,7 +34,7 @@ export class HUD {
       <div id="announce"></div>
       <div id="spectate-banner">
         <span id="spectate-line">SPECTATING <b id="spectate-name"></b></span>
-        <span class="spectate-sub">when they fall, you follow their hunter</span>
+        <span class="spectate-sub">click: next fighter · esc: codex &amp; practice range</span>
       </div>
       <div id="bottom-left">
         <div id="hp-wrap">

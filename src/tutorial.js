@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TrainingDummy } from './dummy.js';
 import { DUMMY_SPOTS } from './maps/training.js';
 import { TUTORIAL_SCRIPTS, ObjectiveTracker } from './tutorials.js';
+import { forcedSpin } from './gambler.js';
 
 // ---------------------------------------------------------------------------
 // Tutorial: guided objective mode on the training grounds. A script from
@@ -62,7 +63,13 @@ export class Tutorial {
     this.cardTitle = this.el.querySelector('h3');
     this.doneEl = this.el.querySelector('#tutorial-done');
     this.stepEl = this.el.querySelector('#tutorial-step');
-    this.el.querySelector('#tutorial-exit').addEventListener('click', () => this.game.toMenu());
+    this.el.querySelector('#tutorial-exit').addEventListener('click', () => {
+      const g = this.game;
+      // practicing mid-round in an FFA room: back to the room menu, never
+      // out of the room entirely
+      if (g.mode === 'ffa' && g.ffa._practice) g.menus.show('mppause');
+      else g.toMenu();
+    });
   }
 
   start(scriptId = 'basics') {
@@ -74,6 +81,19 @@ export class Tutorial {
       return new TrainingDummy(g, new THREE.Vector3(x, y, z), 'PRACTICE DUMMY');
     });
     for (const d of this.dummies) g.enemies.push(d);
+
+    // the gambler tutorial rigs the machine: spin 1 shows a loaded-shot
+    // pair, spin 2 is the guaranteed jackpot the objective asks for, and a
+    // few more chosen results follow before real luck takes over
+    g.tutorialSpins = scriptId === 'gambler'
+      ? [
+          forcedSpin('pair', 'coin'),
+          forcedSpin('jackpot', 'gun'),
+          forcedSpin('jackpot', 'snake'),
+          forcedSpin('pair', 'bell'),
+          forcedSpin('jackpot', 'bomb'),
+        ]
+      : null;
 
     const script = TUTORIAL_SCRIPTS[scriptId] || null;
     this.script = script;
@@ -147,5 +167,6 @@ export class Tutorial {
     this.el.classList.remove('active');
     this.dummies.length = 0;   // actual disposal happens via game._clearBattlefield()
     this.tracker = null;
+    this.game.tutorialSpins = null;
   }
 }

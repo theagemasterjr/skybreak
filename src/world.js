@@ -716,8 +716,9 @@ export class World {
       if (h < -0.2 || h > pl.fieldH) continue;
       if (Math.abs(_gv.dot(pl.t1)) > pl.w / 2 + 2 || Math.abs(_gv.dot(pl.t2)) > pl.d / 2 + 2) continue;
       out.copy(pl.normal).negate();
-      const t = 1 - Math.max(0, h) / pl.fieldH;
-      return mul * (2 + 8 * t);
+      // normal-strength gravity, just re-aimed: jumps feel ordinary, and the
+      // field's reach (not brute force) is what keeps you from escaping
+      return mul;
     }
     let best = null, bestD = Infinity;
     for (const rk of this.gravRocks) {
@@ -725,10 +726,10 @@ export class World {
       if (d < rk.influence && d < bestD) { bestD = d; best = rk; }
     }
     if (best) {
-      _gv.copy(best.center).sub(pos).normalize();
-      const t = 1 - Math.max(0, (bestD - best.r) / (best.influence - best.r));
-      out.lerp(_gv, t).normalize();
-      return mul * (2 + 8 * t);
+      // inside the field the rock owns gravity outright — no world-down mixed
+      // in. Normal strength, fully re-aimed at the rock's heart.
+      out.copy(best.center).sub(pos).normalize();
+      return mul;
     }
     return mul;
   }
