@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Overtime } from '../overtime.js';
 
 // ---------------------------------------------------------------------------
 // Tempest Crown: a ring of rain-dark islands circling the eye of a storm.
@@ -152,6 +153,97 @@ class TempestHazards {
   }
 }
 
+// ---------------------------------------------------------------------------
+// OVERTIME — THE STORM: a visible wall of storm closes on the eye. Caught
+// outside it, you're battered by gusts and struck by lightning on a rhythm
+// that only gets faster. The calm shrinks until there's almost nowhere left.
+// ---------------------------------------------------------------------------
+class StormOvertime extends Overtime {
+  begin() {
+    const w = this.world;
+    this.R = 90;
+    const wallMat = new THREE.MeshBasicMaterial({
+      color: 0x6a7ac0, transparent: true, opacity: 0.16,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    this.wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 140, 48, 1, true), wallMat);
+    this.wall.position.y = 20;
+    w.hazardFx.add(this.wall);
+    this.wallInner = new THREE.Mesh(this.wall.geometry, wallMat.clone());
+    this.wallInner.material.opacity = 0.08;
+    this.wallInner.position.y = 20;
+    w.hazardFx.add(this.wallInner);
+    this.bolts = new Map();      // victim -> {nextAt, warnT}
+    this.log.push([Math.round(w.hazardClock), 'storm']);
+  }
+
+  _victims() {
+    const out = [this.game.player];
+    if (this.game.mode === 'botduel') {
+      for (const e of this.game.enemies) if (e.type === 'duelist') out.push(e);
+    }
+    return out;
+  }
+
+  tick(dt) {
+    const w = this.world, g = this.game;
+    // wall closes: 90 -> 7 over 60s, then grinds on toward 3
+    this.R = this.t < 60
+      ? 90 - (83 / 60) * this.t
+      : Math.max(3, 7 - (this.t - 60) * 0.1);
+    this.wall.scale.set(this.R, 1, this.R);
+    this.wallInner.scale.set(this.R * 0.96, 1, this.R * 0.96);
+    this.wall.rotation.y += dt * 0.15;
+
+    const period = Math.max(0.9, 2.4 - this.t * 0.02);
+    for (const v of this._victims()) {
+      if (!v || !v.alive) continue;
+      const inside = Math.hypot(v.position.x, v.position.z) < this.R;
+      let st = this.bolts.get(v);
+      if (!st) { st = { nextAt: this.t + 1.2, warnT: -1 }; this.bolts.set(v, st); }
+      if (inside) { st.warnT = -1; st.nextAt = Math.max(st.nextAt, this.t + 0.8); continue; }
+
+      // gust buffeting: shoved around while in the storm
+      const isPlayer = v === g.player;
+      if (isPlayer) {
+        v.vel.x += (Math.random() - 0.5) * 24 * dt;
+        v.vel.z += (Math.random() - 0.5) * 24 * dt;
+        v.windBoostT = 0.2;
+      }
+
+      if (st.warnT >= 0) {
+        st.warnT -= dt;
+        if (Math.random() < dt * 20) {
+          g.effects.glow(_v1.copy(v.position).add(_v2.set(0, 8, 0)).clone(), { color: 0xcfe0ff, size: 1.6, life: 0.15 });
+        }
+        if (st.warnT <= 0) {
+          // STRIKE
+          const hit = _v1.copy(v.position); hit.y += 1;
+          const top = hit.clone(); top.y += 60;
+          g.effects.beam(top, hit.clone(), { color: 0xcfe0ff, radius: 0.3, life: 0.18 });
+          g.effects.impactBurst(hit.clone(), { color: 0xcfe0ff, size: 3 });
+          g.audio?.play('explosion');
+          const fling = _v2.set((Math.random() - 0.5), 0, (Math.random() - 0.5));
+          if (fling.lengthSq() < 0.01) fling.set(1, 0, 0);
+          fling.normalize().multiplyScalar(15).setY(9);
+          if (isPlayer) {
+            g.hud?.flash('rgba(190, 210, 255, 0.25)', 0.25);
+            v.takeDamage(11, hit, {});
+            v.applyKnockback(fling.clone());
+            v.shake?.(0.5);
+          } else {
+            v.takeDamage(11, { knockback: fling.clone(), source: 'hazard' });
+          }
+          st.nextAt = this.t + period;
+        }
+      } else if (this.t >= st.nextAt) {
+        st.warnT = 0.55;
+        g.audio?.play('windup');
+      }
+    }
+  }
+}
+
 export const TEMPEST = {
   id: 'tempest',
   name: 'TEMPEST CROWN',
@@ -202,6 +294,10 @@ export const TEMPEST = {
 
   makeHazards(world, game) {
     return new TempestHazards(world, game);
+  },
+
+  makeOvertime(world, game) {
+    return new StormOvertime(world, game);
   },
 
   spawns: {
