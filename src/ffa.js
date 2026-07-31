@@ -307,12 +307,18 @@ export class Ffa {
       if (this._poison && g.player.alive) {
         this._poison.t -= dt;
         g.player.health -= this._poison.dps * dt;
+        g.player.lastDamagedAt = g.simTime;
         if (g.player.health <= 0) {
           g.player.health = 0;
           g.player.alive = false;
           if (g.player.onDeath) g.player.onDeath();
         }
         if (this._poison.t <= 0) this._poison = null;
+      }
+
+      // out of combat 10s -> 1 hp/s trickle
+      if (g.player.alive && g.simTime - (g.player.lastDamagedAt ?? -999) >= 10) {
+        g.player.heal(1 * dt);
       }
 
       // void death

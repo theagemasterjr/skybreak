@@ -155,10 +155,12 @@ export class Player {
       if (amount <= 0) {
         this.trauma = Math.min(1, this.trauma + 0.2);
         this.invulnTimer = 0.15;
+        this.lastDamagedAt = this._simTimeRef ? this._simTimeRef() : 0;
         return true;
       }
     }
     this.health -= amount;
+    this.lastDamagedAt = this._simTimeRef ? this._simTimeRef() : 0;
     this.trauma = Math.min(1, this.trauma + 0.45);
     this.invulnTimer = 0.25;
     if (this.onDamaged) this.onDamaged(amount, sourcePos);
@@ -201,6 +203,7 @@ export class Player {
     this.slowFallTimer = 0;
     this.rootTimer = 0;
     this.dashTimer = 0;
+    this.lastDamagedAt = -999;
   }
 
   applySensitivity() {
@@ -238,6 +241,7 @@ export class Player {
         this.poisonTick = 0.5;
         const d = this.poisonDps * 0.5;
         this.health -= d;
+        this.lastDamagedAt = this._simTimeRef ? this._simTimeRef() : 0;
         this.trauma = Math.min(1, this.trauma + 0.08);
         if (this.onDamaged) this.onDamaged(d, null);
         if (this.health <= 0) {

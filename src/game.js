@@ -42,6 +42,7 @@ export class Game {
     this.loadMap('classic');
     this.input = new Input(canvas);
     this.player = new Player(this.world, this.camera, this.input);
+    this.player._simTimeRef = () => this.simTime;   // for out-of-combat regen stamps
     this.effects = new Effects(this.scene);
     this.projectiles = new Projectiles(this.scene, this.world, this.effects);
 

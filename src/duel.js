@@ -203,6 +203,7 @@ export class Duel {
       if (this._poison && g.player.alive) {
         this._poison.t -= dt;
         g.player.health -= this._poison.dps * dt;
+        g.player.lastDamagedAt = g.simTime;
         if (Math.random() < dt * 6) {
           g.hud.flash('rgba(150, 60, 220, 0.10)', 0.15);
         }
@@ -212,6 +213,11 @@ export class Duel {
           if (g.player.onDeath) g.player.onDeath();
         }
         if (this._poison.t <= 0) this._poison = null;
+      }
+
+      // out of combat 10s -> 1 hp/s trickle
+      if (g.player.alive && g.simTime - (g.player.lastDamagedAt ?? -999) >= 10) {
+        g.player.heal(1 * dt);
       }
 
       // falling into the void loses the round (before the solo-mode reset at -110)
