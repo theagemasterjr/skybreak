@@ -73,6 +73,17 @@ export class World {
   resetHazards(seed = 1) {
     this.hazardClock = 0;
     this.hazardRng = mulberry32(seed);
+    // hazard-owned visuals live in their own group so a re-seed (new duel
+    // round on the same map) never stacks duplicates
+    if (this.hazardFx) {
+      this.root.remove(this.hazardFx);
+      this.hazardFx.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+    }
+    this.hazardFx = new THREE.Group();
+    this.root.add(this.hazardFx);
     this.hazards = this.mapDef.makeHazards
       ? this.mapDef.makeHazards(this, this._game)
       : null;

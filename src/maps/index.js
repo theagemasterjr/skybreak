@@ -1,5 +1,6 @@
 import { CLASSIC } from './classic.js';
 import { TRAINING } from './training.js';
+import { TEMPEST } from './tempest.js';
 
 // ---------------------------------------------------------------------------
 // Map registry. A map def is data (env, islands, platforms, spawns) plus
@@ -11,13 +12,14 @@ import { TRAINING } from './training.js';
 export const MAP_DEFS = {
   classic: CLASSIC,
   training: TRAINING,
+  tempest: TEMPEST,
 };
 
 // every map id (harness / menus iterate this)
 export const MAPS = Object.keys(MAP_DEFS);
 
 // the multiplayer + solo-random pool (training grounds never rolls randomly)
-export const MP_MAPS = ['classic'];
+export const MP_MAPS = ['classic', 'tempest'];
 
 export function getMap(id) {
   return MAP_DEFS[id] || CLASSIC;

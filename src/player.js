@@ -46,6 +46,7 @@ export class Player {
     this.stallTimer = 0;
     this.slowFallTimer = 0;   // ranged m1s: gentle glide instead of a full stall
     this.rootTimer = 0;       // channeled moves (fist flurry): no move/dash/jump
+    this.windBoostT = 0;      // map wind rivers: speed cap raised while riding
     this.recoverAssistUsed = false;
     this.inRecoverZone = false;
 
@@ -251,6 +252,7 @@ export class Player {
     if (this.slowFallTimer > 0) this.slowFallTimer -= dt;
     if (this.rootTimer > 0) this.rootTimer -= dt;
     if (this.dashTimer > 0) this.dashTimer -= dt;
+    if (this.windBoostT > 0) this.windBoostT -= dt;
     const rooted = this.rootTimer > 0;
 
     // dash recharge: fast on the ground, slow (but not zero) in the air
@@ -311,7 +313,7 @@ export class Player {
       // walkSpeed itself, which PvP slows overwrite directly
       const hv = _v1.set(this.vel.x, 0, this.vel.z);
       const hs = hv.length();
-      const maxH = this.walkSpeed * (this.speedMul || 1);
+      const maxH = this.walkSpeed * (this.speedMul || 1) + (this.windBoostT > 0 ? 40 : 0);
       if (hs > maxH) {
         const over = hs - maxH;
         const decel = (this.grounded ? 60 : 8) * dt;

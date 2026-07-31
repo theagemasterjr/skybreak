@@ -53,8 +53,18 @@ for (const id of MAPS) {
     }
   }
 
-  // sim update must not throw
-  const fakeGame = { state: 'playing' };
+  // sim update must not throw (hazards touch the player/effects/audio)
+  const fakeGame = {
+    state: 'playing', simTime: 0, enemies: [],
+    player: {
+      alive: true, position: new THREE.Vector3(0, 200, 0), vel: new THREE.Vector3(),
+      windBoostT: 0, slowFall() {}, takeDamage() {}, applyKnockback() {},
+    },
+    effects: { glow() {}, ring() {}, beam() {}, burst() {}, impactBurst() {} },
+    hud: { flash() {} },
+    audio: { play() {} },
+    hitstop() {},
+  };
   world._game = fakeGame;
   world.resetHazards(7);
   for (let i = 0; i < 600; i++) world.update(1 / 60, i / 60);
