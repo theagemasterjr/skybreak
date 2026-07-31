@@ -109,6 +109,19 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 #wave-label { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.22em; }
 #wave-remaining { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.14em; color: var(--ember); }
 
+#ot-timer {
+  position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+  font-size: 0.95rem; font-weight: 700; letter-spacing: 0.18em;
+  color: #cfd8e8; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  opacity: 0; transition: opacity 0.3s;
+}
+#ot-timer.active { opacity: 0.9; }
+#ot-timer.urgent { color: #ff5040; animation: ot-pulse 0.5s infinite alternate; }
+@keyframes ot-pulse {
+  from { transform: translateX(-50%) scale(1); }
+  to { transform: translateX(-50%) scale(1.14); }
+}
+
 #run-kills {
   position: absolute; top: 26px; right: 28px;
   font-size: 0.85rem; font-weight: 700; letter-spacing: 0.18em; color: var(--text-dim);

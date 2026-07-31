@@ -30,6 +30,7 @@ export class HUD {
         <span class="ch-hit bl"></span><span class="ch-hit br"></span>
       </div>
       <div id="wave-banner"><span id="wave-label">WAVE 1</span><span id="wave-remaining"></span></div>
+      <div id="ot-timer"></div>
       <div id="run-kills"></div>
       <div id="announce"></div>
       <div id="spectate-banner">
@@ -68,6 +69,7 @@ export class HUD {
     this.chargeFill = this.el.querySelector('#charge-fill');
     this.waveLabel = this.el.querySelector('#wave-label');
     this.waveRemaining = this.el.querySelector('#wave-remaining');
+    this.otTimer = this.el.querySelector('#ot-timer');
     this.runKillsEl = this.el.querySelector('#run-kills');
     this.announceEl = this.el.querySelector('#announce');
     this.vignette = this.el.querySelector('#vignette');
@@ -355,6 +357,23 @@ export class HUD {
       this.screenFlash.style.opacity = Math.max(0, this._flashT / this._flashDur);
     } else {
       this.screenFlash.style.opacity = 0;
+    }
+
+    // overtime countdown (duel/ffa/botduel rounds only)
+    const ot = g.world?.overtime;
+    if (ot && ot.enabled && g.state === 'playing') {
+      if (!ot.started) {
+        const r = ot.remaining;
+        const m = Math.floor(r / 60), s = Math.floor(r % 60);
+        this.otTimer.textContent = `${m}:${String(s).padStart(2, '0')}`;
+        this.otTimer.classList.add('active');
+        this.otTimer.classList.toggle('urgent', r <= 10);
+      } else {
+        this.otTimer.textContent = 'OVERTIME';
+        this.otTimer.className = 'active urgent';
+      }
+    } else {
+      this.otTimer.classList.remove('active', 'urgent');
     }
 
     // void warning
