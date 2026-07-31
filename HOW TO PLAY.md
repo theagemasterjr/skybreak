@@ -46,10 +46,11 @@
   slowly orbit the center, and a **black hole** hangs above the heart of the
   garden: drift too close and it swallows you, holds you for a breath, then
   hurls you skyward in a random direction. No damage — but no control either.
-- **Shattered Belt** — deep space, **low gravity**, and two kinds of graviton
-  terrain: round rocks you can run all the way around, and purple plates that
-  pull one way onto their face. Once a field grips you, jumping won't free
-  you — only a dash breaks the pull. Drifting particles show each field's reach.
+- **Shattered Belt** — deep space with two kinds of **graviton terrain**:
+  round rocks you can run all the way around, and purple plates that pull one
+  way onto their face — tilted ramps, a sideways wall, even a near-upside-down
+  ceiling. Their fields grip HARD: jumping won't free you, only a dash breaks
+  the pull. Glowing particles mark each field's exact reach.
 - **Training Grounds** — a quiet flat plate with practice dummies. Home of
   the tutorials; also pickable for free practice.
 

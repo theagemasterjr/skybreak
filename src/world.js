@@ -596,27 +596,35 @@ export class World {
     }
   }
 
-  // sparse particle shell marking the exact reach of a rock's gravity field
+  // particle shell marking the exact reach of a rock's gravity field —
+  // a clearly visible slowly-turning halo right at the boundary
   _addFieldShell(center, radius, color, rng) {
-    const N = 34;
+    const N = 80;
     const pos = new Float32Array(N * 3);
     for (let i = 0; i < N; i++) {
       const u = rng() * 2 - 1, a = rng() * Math.PI * 2;
       const s = Math.sqrt(1 - u * u);
-      pos[i * 3] = Math.cos(a) * s * radius;
-      pos[i * 3 + 1] = u * radius;
-      pos[i * 3 + 2] = Math.sin(a) * s * radius;
+      const r = radius * (0.94 + rng() * 0.06);   // thin band at the edge
+      pos[i * 3] = Math.cos(a) * s * r;
+      pos[i * 3 + 1] = u * r;
+      pos[i * 3 + 2] = Math.sin(a) * s * r;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const pts = new THREE.Points(geo, new THREE.PointsMaterial({
-      map: makeGlowTexture(), color, size: 0.4, transparent: true, opacity: 0.5,
+      map: makeGlowTexture(), color, size: 0.6, transparent: true, opacity: 0.8,
       blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
     }));
     pts.position.copy(center);
     this.root.add(pts);
-    const spin = 0.1 + rng() * 0.12;
-    this.fieldFx.push({ update: (dt) => { pts.rotation.y += dt * spin; } });
+    const spin = 0.16 + rng() * 0.14;
+    const wobble = 0.05 + rng() * 0.05;
+    this.fieldFx.push({
+      update: (dt) => {
+        pts.rotation.y += dt * spin;
+        pts.rotation.x += dt * wobble;
+      },
+    });
   }
 
   // graviton plates: flat purple slabs whose gravity pulls one way — onto
@@ -709,7 +717,7 @@ export class World {
       if (Math.abs(_gv.dot(pl.t1)) > pl.w / 2 + 2 || Math.abs(_gv.dot(pl.t2)) > pl.d / 2 + 2) continue;
       out.copy(pl.normal).negate();
       const t = 1 - Math.max(0, h) / pl.fieldH;
-      return mul * (1 + 3.5 * t);
+      return mul * (2 + 8 * t);
     }
     let best = null, bestD = Infinity;
     for (const rk of this.gravRocks) {
@@ -720,7 +728,7 @@ export class World {
       _gv.copy(best.center).sub(pos).normalize();
       const t = 1 - Math.max(0, (bestD - best.r) / (best.influence - best.r));
       out.lerp(_gv, t).normalize();
-      return mul * (1 + 3.5 * t);
+      return mul * (2 + 8 * t);
     }
     return mul;
   }

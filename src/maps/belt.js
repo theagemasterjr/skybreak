@@ -1,20 +1,20 @@
 import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
-// Shattered Belt: an asteroid field drifting in deep-space dusk. Gravity is
-// weak everywhere (gravityMul), and GRAVITON ROCKS — glowing ringed
-// asteroids — bend your personal gravity toward them when you're close:
-// land on them, sprint around their surface, slingshot away. Gravity snaps
-// back to normal the moment you leave a rock's influence.
+// Shattered Belt: an asteroid field drifting in deep-space dusk. Normal
+// gravity in the open — but GRAVITON terrain bends it: glowing ringed
+// asteroids you can run all the way around, and purple plates whose fields
+// pull one way onto their face. Once a field grips you, only a dash frees
+// you; gravity snaps back to plain down the moment you leave.
 // ---------------------------------------------------------------------------
 
 export const BELT = {
   id: 'belt',
   name: 'SHATTERED BELT',
-  blurb: 'low gravity · graviton rocks',
+  blurb: 'graviton rocks · gravity plates',
 
   env: {
-    gravityMul: 0.45,
+    gravityMul: 1,
     sunDir: [0.55, 0.3, -0.78],
     sunColor: 0xd0dcff,
     sunIntensity: 2.0,
@@ -62,22 +62,24 @@ export const BELT = {
 
   // graviton rocks — spherical: walk all the way around them. r = surface
   // radius; the field extends r + 10 (see World._buildGravRocks). Their pull
-  // ramps up hard inside the field: jumping won't escape, dashing will.
+  // ramps up HARD inside the field: jumping won't escape, only dashing will.
   gravRocks: [
     { x: 22, y: 12, z: 8, r: 5 },
     { x: 4, y: 26, z: -18, r: 6 },
-    { x: -30, y: 10, z: -2, r: 4 },
-    { x: 52, y: 14, z: -34, r: 5.5 },
-    { x: -38, y: 24, z: 40, r: 4.5 },
   ],
 
   // graviton plates — flat purple slabs with ONE-directional gravity: the
-  // field above each face pulls straight down onto it (some are tilted)
+  // field over each face pulls straight onto it. Angles vary wildly: tilted
+  // ramps, a sideways wall you stand on like a floor, and a near-upside-down
+  // ceiling you walk under with the world flipped.
   gravPlates: [
     { x: -14, y: 17, z: 16, w: 9, d: 7, yaw: 0.4, tilt: 0.35 },
     { x: 34, y: 21, z: 34, w: 8, d: 8, yaw: 2.1, tilt: -0.3 },
     { x: -10, y: 9, z: -36, w: 10, d: 6, yaw: 5.5, tilt: 0.5 },
-    { x: 14, y: 32, z: 30, w: 8, d: 6, yaw: 3.6, tilt: 0.15 },
+    { x: 14, y: 32, z: 30, w: 8, d: 6, yaw: 3.6, tilt: -0.75 },
+    { x: -30, y: 12, z: -2, w: 8, d: 6, yaw: 0.8, tilt: 1.45 },    // the WALL: face points sideways
+    { x: 52, y: 16, z: -34, w: 9, d: 7, yaw: 1.2, tilt: 3.0 },     // the CEILING: near upside-down
+    { x: -38, y: 24, z: 40, w: 8, d: 6, yaw: 4.2, tilt: 0.9 },     // steep ramp
   ],
 
   spawns: {

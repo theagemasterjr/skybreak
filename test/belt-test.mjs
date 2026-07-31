@@ -32,16 +32,16 @@ const scene = new THREE.Scene();
 const belt = new World(scene, MAP_DEFS.belt);
 const dir = new THREE.Vector3();
 
-// (a) far from any rock: plain down, belt strength
+// (a) far from any rock: plain down, plain strength (belt is normal gravity)
 let mul = belt.gravityAt(new THREE.Vector3(0, 200, 0), dir);
 if (dir.distanceTo(new THREE.Vector3(0, -1, 0)) > 1e-6) fail(`far gravity dir ${dir.toArray()}`);
-if (Math.abs(mul - 0.45) > 1e-9) fail(`belt gravity mul ${mul}`);
+if (Math.abs(mul - 1) > 1e-9) fail(`belt gravity mul ${mul}`);
 
 // (a2) at a rock's surface the pull ramps up hard (jump-proof strength)
 {
   const rk0 = MAP_DEFS.belt.gravRocks[0];
   const m = belt.gravityAt(new THREE.Vector3(rk0.x + rk0.r + 0.2, rk0.y, rk0.z), dir);
-  if (m < 0.45 * 3.5) fail(`near-surface pull too weak: ${m}`);
+  if (m < 8) fail(`near-surface pull too weak: ${m}`);
 }
 
 // (a3) plate fields: one-directional gravity onto the face
