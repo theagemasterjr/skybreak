@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Overtime, StrikePool } from '../overtime.js';
 
 // ---------------------------------------------------------------------------
 // The Godspire: one colossal ruined marble tower under a bright noon sky.
@@ -27,6 +28,109 @@ function addLedge(world, root, mat, x, z, baseY, R, motion = {}) {
     amp: motion.amp ?? 0, speed: motion.speed ?? 0, phase: motion.phase ?? 0,
     orbit: motion.orbit, mesh,
   });
+}
+
+// ---------------------------------------------------------------------------
+// OVERTIME — THE COLLAPSE: the spire sheds its ledges from the crown down —
+// each one rumbles, then shatters. The satellites crumble next. When nothing
+// is left but the base, the ruin itself bombards the survivors with marble.
+// ---------------------------------------------------------------------------
+const _o1 = new THREE.Vector3();
+
+class CollapseOvertime extends Overtime {
+  begin() {
+    const w = this.world;
+    // ledges die top-down: crown first, funneling the fight toward the base
+    this.queue = w.platforms.slice().sort((a, b) => b.baseY - a.baseY);
+    this.islandQueue = w.islands
+      .filter((i) => i.R < 15)
+      .sort((a, b) => b.topY - a.topY);
+    this.rumbling = [];    // {p | island, t}
+    this.sinking = [];     // {island, t, spin}
+    this.strikes = new StrikePool(w, this.game);
+    this.nextAt = this.t + 2;
+    this.nextStrikeAt = null;
+    this.bombardAt = null;
+  }
+
+  tick(dt) {
+    const w = this.world, g = this.game;
+
+    // schedule the next collapse
+    if (this.t >= this.nextAt && (this.queue.length || this.islandQueue.length)) {
+      this.nextAt = this.t + Math.max(1.6, 3 - this.t * 0.02);
+      if (this.queue.length) {
+        const p = this.queue.shift();
+        this.rumbling.push({ p, t: 1.1, home: p.mesh ? p.mesh.position.clone() : null });
+        this.log.push([Math.round(w.hazardClock), 'ledge']);
+      } else {
+        const island = this.islandQueue.shift();
+        this.rumbling.push({ island, t: 1.1 });
+        this.log.push([Math.round(w.hazardClock), 'island']);
+      }
+      if (!this.queue.length && !this.islandQueue.length) this.bombardAt = this.t + 4;
+      g.audio?.play('windup');
+    }
+
+    // rumble, then shatter / crumble
+    for (let i = this.rumbling.length - 1; i >= 0; i--) {
+      const r = this.rumbling[i];
+      r.t -= dt;
+      if (r.p && r.p.mesh) {
+        r.p.mesh.position.x = r.home.x + (Math.random() - 0.5) * 0.3;
+        r.p.mesh.position.z = r.home.z + (Math.random() - 0.5) * 0.3;
+      } else if (r.island?.group) {
+        r.island.group.position.x = (Math.random() - 0.5) * 0.4;
+        r.island.group.position.z = (Math.random() - 0.5) * 0.4;
+      }
+      if (r.t > 0) continue;
+      this.rumbling.splice(i, 1);
+      if (r.p) {
+        const pos = r.p.mesh ? r.p.mesh.position.clone()
+          : _o1.set(r.p.x, r.p.baseY, r.p.z).clone();
+        g.effects.impactBurst(pos.clone(), { color: 0xd8cfc0, size: 3.5 });
+        g.effects.burst(pos.clone(), { count: 26, color: 0xd8cfc0, color2: 0x8a7f70, speed: 9, size: 0.35, life: 0.6, gravity: 12, additive: false });
+        g.audio?.play('explosion');
+        w.removePlatform(r.p);
+        if (r.p.mesh) r.p.mesh.visible = false;
+        g.player.shake(Math.max(0.1, 1 - g.player.position.distanceTo(pos) / 70));
+      } else {
+        g.effects.impactBurst(_o1.set(r.island.x, r.island.topY, r.island.z).clone(), { color: 0xd8cfc0, size: 5 });
+        g.audio?.play('explosion');
+        w.removeIsland(r.island);
+        this.sinking.push({ island: r.island, t: 0, spin: (w.hazardRng() - 0.5) * 0.7 });
+      }
+    }
+
+    // crumbled satellites sink
+    for (let i = this.sinking.length - 1; i >= 0; i--) {
+      const s = this.sinking[i];
+      s.t += dt;
+      const grp = s.island.group;
+      if (grp) {
+        grp.position.y -= (3 + s.t * 20) * dt;
+        grp.rotation.x += s.spin * dt;
+        if (s.t > 3) { grp.visible = false; this.sinking.splice(i, 1); }
+      } else this.sinking.splice(i, 1);
+    }
+
+    // endgame: marble rubble bombardment on the base island
+    if (this.bombardAt !== null && this.t >= this.bombardAt) {
+      if (this.nextStrikeAt === null) this.nextStrikeAt = this.t;
+      if (this.t >= this.nextStrikeAt) {
+        this.nextStrikeAt = this.t + Math.max(1.6, 4 - (this.t - this.bombardAt) * 0.1);
+        for (const v of this.strikes._defaultVictims()) {
+          if (!v || !v.alive) continue;
+          const p = v.position.clone();
+          const ground = w.groundHeightBelow(p.x, p.z, p.y + 2, 0, 80);
+          p.y = ground ?? 0;
+          this.strikes.spawn(p, { dmg: 24, r: 5.5, color: 0xd8cfc0 });
+        }
+        this.log.push([Math.round(w.hazardClock), 'rubble']);
+      }
+    }
+    this.strikes.update(dt);
+  }
 }
 
 export const GODSPIRE = {
@@ -158,6 +262,10 @@ export const GODSPIRE = {
     beaconLight.position.set(0, TOWER_H + 4, 0);
     root.add(beaconLight);
     world.crystals.push(beaconMat);   // rides the crystal pulse
+  },
+
+  makeOvertime(world, game) {
+    return new CollapseOvertime(world, game);
   },
 
   spawns: {
