@@ -3,16 +3,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32, fbm2, noise2, lerp, clamp, randRange } from './utils.js';
 
 // ---------------------------------------------------------------------------
-// World: the floating sky-island arena. Owns environment meshes, lighting,
-// sky, clouds, and the ground-collision model used by player and enemies.
+// World: a floating sky-island arena built from a map definition (src/maps/).
+// Owns environment meshes, lighting, sky, clouds, hazards, and the
+// ground-collision model used by player and enemies. Everything the world
+// creates lives under one root group so dispose() can tear a map down clean.
 // ---------------------------------------------------------------------------
 
-const PALETTE = {
-  zenith: new THREE.Color('#2b3a6e'),
-  mid: new THREE.Color('#8a4a74'),
-  horizon: new THREE.Color('#ff9a55'),
-  sun: new THREE.Color('#fff2c4'),
-  fog: new THREE.Color('#d97e55'),
+const DEFAULT_PALETTE = {
   grassA: new THREE.Color('#5da24f'),
   grassB: new THREE.Color('#8fba55'),
   grassWarm: new THREE.Color('#b0a04a'),
@@ -22,19 +19,42 @@ const PALETTE = {
   rockTip: new THREE.Color('#3a2f2a'),
   stone: new THREE.Color('#b5a289'),
   stoneDark: new THREE.Color('#8f7d66'),
+  leafA: new THREE.Color('#3f7d46'),
+  leafB: new THREE.Color('#71ad57'),
+  leafWarmA: new THREE.Color('#c9903d'),
+  leafWarmB: new THREE.Color('#e0b04f'),
+  crystalA: new THREE.Color(0x7be8ff),
+  crystalB: new THREE.Color(0xc48bff),
 };
 
+// classic's sun direction, kept as a module export for any legacy references
 export const SUN_DIR = new THREE.Vector3(0.38, 0.30, -0.87).normalize();
 
 export class World {
-  constructor(scene) {
+  constructor(scene, mapDef) {
     this.scene = scene;
-    this.islands = [];      // static islands: {x, z, topY, R, domeH, edgeSeed}
+    this.mapDef = mapDef;
+    this.root = new THREE.Group();
+    scene.add(this.root);
+
+    this.palette = { ...DEFAULT_PALETTE };
+    for (const k in (mapDef.env.palette || {})) {
+      this.palette[k] = new THREE.Color(mapDef.env.palette[k]);
+    }
+
+    this.sunDir = new THREE.Vector3(...mapDef.env.sunDir).normalize();
+    this.islands = [];      // static islands: {x, z, topY, R, domeH, edgeSeed, flat?}
     this.platforms = [];    // bobbing platforms: {x, z, baseY, R, amp, speed, phase, mesh}
     this.columns = [];      // cylinder colliders: {x, z, r, yBottom, yTop}
     this.crystals = [];     // pulsing emissive materials
     this.cloudGroup = null;
     this.time = 0;
+
+    // hazards: seeded, deterministic, driven by hazardClock (reset each round)
+    this._game = null;      // set by Game.loadMap before resetHazards
+    this.hazards = null;
+    this.hazardClock = 0;
+    this.hazardRng = mulberry32(1);
 
     this._buildLights();
     this._buildSky();
@@ -42,15 +62,40 @@ export class World {
     this._buildPlatforms();
     this._buildClouds();
     this._buildMotes();
+    if (mapDef.build) mapDef.build(this, this.root, mulberry32(50));
+
+    this.soloSpawn = new THREE.Vector3(...mapDef.spawns.solo);
+  }
+
+  resetHazards(seed = 1) {
+    this.hazardClock = 0;
+    this.hazardRng = mulberry32(seed);
+    this.hazards = this.mapDef.makeHazards
+      ? this.mapDef.makeHazards(this, this._game)
+      : null;
+  }
+
+  dispose() {
+    this.scene.remove(this.root);
+    this.root.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        // NOTE: procedural textures (glow/cloud/grass) are cached module
+        // singletons shared across worlds — dispose materials, keep maps.
+        if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+        else o.material.dispose();
+      }
+    });
   }
 
   // ---- lighting ----
   _buildLights() {
-    const hemi = new THREE.HemisphereLight(0x6a79c9, 0xb06a45, 0.85);
-    this.scene.add(hemi);
+    const env = this.mapDef.env;
+    const hemi = new THREE.HemisphereLight(env.hemi[0], env.hemi[1], env.hemi[2]);
+    this.root.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xffd9a3, 2.6);
-    sun.position.copy(SUN_DIR).multiplyScalar(180);
+    const sun = new THREE.DirectionalLight(env.sunColor, env.sunIntensity);
+    sun.position.copy(this.sunDir).multiplyScalar(180);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 40;
@@ -61,25 +106,32 @@ export class World {
     sun.shadow.camera.bottom = -95;
     sun.shadow.bias = -0.0015;
     sun.shadow.normalBias = 0.02;
-    this.scene.add(sun);
+    this.root.add(sun);
+    this.root.add(sun.target);
     this.sun = sun;
+    this.sunBaseIntensity = env.sunIntensity;
 
-    this.scene.fog = new THREE.Fog(PALETTE.fog.getHex(), 110, 620);
+    this.scene.fog = new THREE.Fog(new THREE.Color(env.fog.color).getHex(), env.fog.near, env.fog.far);
   }
 
   // ---- sky dome + sun glow ----
   _buildSky() {
+    const env = this.mapDef.env;
     const geo = new THREE.SphereGeometry(950, 32, 24);
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
       fog: false,
       uniforms: {
-        sunDir: { value: SUN_DIR.clone() },
-        zenith: { value: PALETTE.zenith },
-        mid: { value: PALETTE.mid },
-        horizon: { value: PALETTE.horizon },
-        sunColor: { value: PALETTE.sun },
+        sunDir: { value: this.sunDir.clone() },
+        zenith: { value: new THREE.Color(env.sky.zenith) },
+        mid: { value: new THREE.Color(env.sky.mid) },
+        horizon: { value: new THREE.Color(env.sky.horizon) },
+        sunColor: { value: new THREE.Color(env.sky.sun) },
+        starHeight: { value: env.sky.starHeight ?? 0.22 },
+        starDensity: { value: env.sky.starDensity ?? 0.9965 },
+        auroraStrength: { value: env.sky.aurora ?? 0 },
+        auroraColor: { value: new THREE.Color(env.sky.auroraColor ?? 0x44ffcc) },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -90,7 +142,8 @@ export class World {
         }
       `,
       fragmentShader: /* glsl */ `
-        uniform vec3 sunDir, zenith, mid, horizon, sunColor;
+        uniform vec3 sunDir, zenith, mid, horizon, sunColor, auroraColor;
+        uniform float starHeight, starDensity, auroraStrength;
         varying vec3 vDir;
 
         float hash(vec3 p) {
@@ -121,13 +174,20 @@ export class World {
           float disk = smoothstep(0.99955, 0.99985, d);
           col += sunColor * disk * 4.0;
 
-          // faint dusk stars overhead
-          if (h > 0.22) {
+          // aurora ribbons (night maps; strength 0 elsewhere)
+          if (auroraStrength > 0.0) {
+            float ab = sin(dir.x * 3.1 + dir.y * 6.0) * sin(dir.z * 2.3 + dir.y * 4.0);
+            float aur = smoothstep(0.15, 0.75, dir.y) * pow(max(ab, 0.0), 2.0) * auroraStrength;
+            col += auroraColor * aur;
+          }
+
+          // faint stars overhead
+          if (h > starHeight) {
             vec3 cell = floor(dir * 220.0);
             float s = hash(cell);
-            if (s > 0.9965) {
-              float star = (s - 0.9965) / 0.0035;
-              col += vec3(0.9, 0.95, 1.0) * star * smoothstep(0.22, 0.55, h) * 0.8;
+            if (s > starDensity) {
+              float star = (s - starDensity) / (1.0 - starDensity);
+              col += vec3(0.9, 0.95, 1.0) * star * smoothstep(starHeight, starHeight + 0.33, h) * 0.8;
             }
           }
 
@@ -137,28 +197,27 @@ export class World {
     });
     const sky = new THREE.Mesh(geo, mat);
     sky.frustumCulled = false;
-    this.scene.add(sky);
+    this.root.add(sky);
 
     // layered sun glow sprites
     const glowTex = makeGlowTexture();
-    const mkGlow = (scale, opacity, color) => {
+    for (const gdef of env.glow) {
       const m = new THREE.SpriteMaterial({
-        map: glowTex, color, transparent: true, opacity,
+        map: glowTex, color: gdef.color, transparent: true, opacity: gdef.opacity,
         blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
       });
       const s = new THREE.Sprite(m);
-      s.position.copy(SUN_DIR).multiplyScalar(820);
-      s.scale.setScalar(scale);
-      this.scene.add(s);
-    };
-    mkGlow(500, 0.55, 0xffb36b);
-    mkGlow(210, 0.9, 0xfff0c0);
+      s.position.copy(this.sunDir).multiplyScalar(820);
+      s.scale.setScalar(gdef.scale);
+      this.root.add(s);
+    }
   }
 
   // ---- island collision -------------------------------------------------
   // Edge radius varies with angle so islands have organic outlines. The same
   // function drives both mesh generation and collision, so they always agree.
   static edgeRadius(island, theta) {
+    if (island.flat) return island.R;
     const n = noise2(Math.cos(theta) * 1.7 + island.edgeSeed, Math.sin(theta) * 1.7 + island.edgeSeed);
     return island.R * (0.82 + 0.28 * n);
   }
@@ -169,6 +228,7 @@ export class World {
     const theta = Math.atan2(dz, dx);
     const edge = World.edgeRadius(island, theta);
     if (r > edge) return null;
+    if (island.flat) return island.topY;
     const t = r / edge;
     const dome = island.domeH * (1 - t * t);
     const bump = (fbm2(x * 0.08 + island.edgeSeed, z * 0.08 - island.edgeSeed, 3) - 0.5) * 1.1 * (1 - t * 0.6);
@@ -225,28 +285,22 @@ export class World {
 
   // ---- island construction ----
   _buildIslands() {
-    const defs = [
-      { x: 0, z: 0, topY: 0, R: 30, domeH: 1.5, depth: 36, seed: 11, ruins: true, trees: 7, rocks: 9, crystals: 3 },
-      { x: 58, z: -26, topY: 7, R: 14, domeH: 1.2, depth: 20, seed: 23, trees: 4, rocks: 4, crystals: 1 },
-      { x: -52, z: 22, topY: 11, R: 12, domeH: 1.1, depth: 17, seed: 37, trees: 3, rocks: 3, crystals: 2 },
-      { x: 18, z: 58, topY: 16, R: 10, domeH: 1.0, depth: 15, seed: 51, trees: 2, rocks: 3, crystals: 1 },
-      { x: -38, z: -52, topY: -6, R: 13, domeH: 1.2, depth: 18, seed: 67, trees: 4, rocks: 4, crystals: 1 },
-      { x: 62, z: 38, topY: -2, R: 9, domeH: 0.9, depth: 13, seed: 83, trees: 2, rocks: 2, crystals: 1 },
-    ];
-
     const islandMat = new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 1, metalness: 0, flatShading: true,
     });
 
-    for (const d of defs) {
-      const island = { x: d.x, z: d.z, topY: d.topY, R: d.R, domeH: d.domeH, edgeSeed: d.seed, depth: d.depth };
+    for (const d of this.mapDef.islands) {
+      const island = {
+        x: d.x, z: d.z, topY: d.topY, R: d.R, domeH: d.domeH,
+        edgeSeed: d.seed, depth: d.depth, flat: !!d.flat,
+      };
       this.islands.push(island);
 
-      const geo = buildIslandGeometry(island, d.depth, d.seed);
+      const geo = buildIslandGeometry(island, d.depth, d.seed, !!d.bare, this.palette);
       const mesh = new THREE.Mesh(geo, islandMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      this.scene.add(mesh);
+      this.root.add(mesh);
 
       const rng = mulberry32(d.seed * 977 + 5);
       this._decorate(island, d, rng);
@@ -268,26 +322,28 @@ export class World {
     };
 
     // trees
-    for (let i = 0; i < d.trees; i++) {
+    for (let i = 0; i < (d.trees || 0); i++) {
       const p = placeOnIsland(0.8);
       if (d.ruins && Math.hypot(p.x - island.x, p.z - island.z) < 12) { i--; continue; }
-      this.scene.add(makeTree(rng, p));
+      this.root.add(makeTree(rng, p, this.palette));
     }
     // rocks
-    for (let i = 0; i < d.rocks; i++) {
+    for (let i = 0; i < (d.rocks || 0); i++) {
       const p = placeOnIsland(0.92);
-      this.scene.add(makeRock(rng, p));
+      this.root.add(makeRock(rng, p, this.palette));
     }
     // crystals
-    for (let i = 0; i < d.crystals; i++) {
+    for (let i = 0; i < (d.crystals || 0); i++) {
       const p = placeOnIsland(0.75);
-      const { group, mat } = makeCrystalCluster(rng, p);
-      this.scene.add(group);
+      const { group, mat } = makeCrystalCluster(rng, p, this.palette);
+      this.root.add(group);
       this.crystals.push(mat);
     }
     // grass tufts
-    this.scene.add(makeGrassTufts(island, rng, Math.floor(island.R * island.R * 0.55)));
-    // ruins centerpiece on the main island
+    if (!d.bare && !d.flat) {
+      this.root.add(makeGrassTufts(island, rng, Math.floor(island.R * island.R * 0.55), this.palette));
+    }
+    // ruins centerpiece
     if (d.ruins) this._buildRuins(island);
   }
 
@@ -309,14 +365,14 @@ export class World {
       const y = World.islandHeightAt(island, x, z) ?? island.topY;
       const broken = rng() < 0.45;
       const h = broken ? randRange(rng, 1.2, 2.6) : randRange(rng, 4.2, 5.6);
-      const col = makeColumnGeometry(rng, h, broken);
+      const col = makeColumnGeometry(rng, h, broken, this.palette);
       col.translate(x, y, z);
       geos.push(col);
       this.columns.push({ x, z, r: 0.85, yBottom: y, yTop: y + h + 0.6 });
       // fallen chunk next to broken columns
       if (broken) {
         const chunk = new THREE.CylinderGeometry(0.55, 0.62, randRange(rng, 0.9, 1.6), 7);
-        paintGeometry(chunk, PALETTE.stone, PALETTE.stoneDark, rng, 0.25);
+        paintGeometry(chunk, this.palette.stone, this.palette.stoneDark, rng, 0.25);
         chunk.rotateZ(Math.PI / 2 + randRange(rng, -0.4, 0.4));
         chunk.rotateY(rng() * Math.PI);
         chunk.translate(x + randRange(rng, -2, 2), y + 0.5, z + randRange(rng, -2, 2));
@@ -325,10 +381,10 @@ export class World {
     }
     // central dais: two stacked worn discs
     const dais1 = new THREE.CylinderGeometry(4.6, 5.0, 0.7, 18);
-    paintGeometry(dais1, PALETTE.stone, PALETTE.stoneDark, rng, 0.2);
+    paintGeometry(dais1, this.palette.stone, this.palette.stoneDark, rng, 0.2);
     dais1.translate(island.x, island.topY + island.domeH + 0.3, island.z);
     const dais2 = new THREE.CylinderGeometry(3.4, 3.7, 0.55, 16);
-    paintGeometry(dais2, PALETTE.stone, PALETTE.stoneDark, rng, 0.2);
+    paintGeometry(dais2, this.palette.stone, this.palette.stoneDark, rng, 0.2);
     dais2.translate(island.x, island.topY + island.domeH + 0.9, island.z);
     geos.push(dais1, dais2);
 
@@ -337,7 +393,7 @@ export class World {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
-    this.scene.add(group);
+    this.root.add(group);
 
     // the dais is walkable: add a tiny collision platform (static, amp 0)
     this.platforms.push({
@@ -352,30 +408,27 @@ export class World {
 
   // ---- bobbing stepping-stone platforms ----
   _buildPlatforms() {
-    const rng = mulberry32(999);
+    const rng = mulberry32(this.mapDef.platformSeed ?? 999);
     const rockMat = new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 1, metalness: 0, flatShading: true,
     });
-    const spots = [
-      [30, -14, 5], [44, 4, 3], [-28, 2, 7], [-45, -18, 1], [-10, -38, -2],
-      [12, 36, 9], [-22, 42, 13], [38, 52, 7], [56, 8, 2], [-2, 55, 14],
-      [-48, -36, -3], [24, -44, 4],
-    ];
-    for (const [x, z, y] of spots) {
-      const R = randRange(rng, 2.6, 4.2);
+    for (const def of this.mapDef.platforms) {
+      // defs may pin any field; unset ones roll from the map's platform rng
+      // (rng call order matches the original generator exactly)
+      const R = def.R ?? randRange(rng, 2.6, 4.2);
       const p = {
-        x, z, baseY: y, R,
-        amp: randRange(rng, 0.7, 1.4),
-        speed: randRange(rng, 0.35, 0.7),
-        phase: rng() * Math.PI * 2,
+        x: def.x, z: def.z, baseY: def.baseY, R,
+        amp: def.amp ?? randRange(rng, 0.7, 1.4),
+        speed: def.speed ?? randRange(rng, 0.35, 0.7),
+        phase: def.phase ?? rng() * Math.PI * 2,
       };
-      const island = { x: 0, z: 0, topY: 0, R, domeH: 0.35, edgeSeed: Math.floor(rng() * 1000) };
-      const geo = buildIslandGeometry(island, R * 2.2, island.edgeSeed, true);
+      const island = { x: 0, z: 0, topY: 0, R, domeH: 0.35, edgeSeed: def.seed ?? Math.floor(rng() * 1000) };
+      const geo = buildIslandGeometry(island, R * 2.2, island.edgeSeed, true, this.palette);
       const mesh = new THREE.Mesh(geo, rockMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      mesh.position.set(x, y, z);
-      this.scene.add(mesh);
+      mesh.position.set(p.x, p.baseY, p.z);
+      this.root.add(mesh);
       p.mesh = mesh;
       this.platforms.push(p);
     }
@@ -383,6 +436,7 @@ export class World {
 
   // ---- clouds ----
   _buildClouds() {
+    const env = this.mapDef.env.clouds;
     const tex = makeCloudTexture();
     const group = new THREE.Group();
     const rng = mulberry32(777);
@@ -390,7 +444,7 @@ export class World {
     const addCloud = (dist, y, scale, opacity) => {
       const mat = new THREE.SpriteMaterial({
         map: tex, transparent: true, opacity,
-        color: new THREE.Color().lerpColors(new THREE.Color(0xffd9c0), new THREE.Color(0xfff5ec), rng()),
+        color: new THREE.Color().lerpColors(new THREE.Color(env.tintA), new THREE.Color(env.tintB), rng()),
         depthWrite: false, fog: false,
       });
       const s = new THREE.Sprite(mat);
@@ -403,18 +457,19 @@ export class World {
       group.add(s);
     };
 
-    for (let i = 0; i < 26; i++) addCloud(randRange(rng, 40, 230), randRange(rng, -70, -28), randRange(rng, 40, 95), randRange(rng, 0.5, 0.85));
-    for (let i = 0; i < 12; i++) addCloud(randRange(rng, 480, 760), randRange(rng, -60, 40), randRange(rng, 160, 300), randRange(rng, 0.55, 0.8));
-    for (let i = 0; i < 7; i++) addCloud(randRange(rng, 120, 300), randRange(rng, 70, 150), randRange(rng, 60, 110), randRange(rng, 0.3, 0.5));
+    for (let i = 0; i < env.low; i++) addCloud(randRange(rng, 40, 230), randRange(rng, -70, -28), randRange(rng, 40, 95), randRange(rng, 0.5, 0.85));
+    for (let i = 0; i < env.far; i++) addCloud(randRange(rng, 480, 760), randRange(rng, -60, 40), randRange(rng, 160, 300), randRange(rng, 0.55, 0.8));
+    for (let i = 0; i < env.high; i++) addCloud(randRange(rng, 120, 300), randRange(rng, 70, 150), randRange(rng, 60, 110), randRange(rng, 0.3, 0.5));
 
-    this.scene.add(group);
+    this.root.add(group);
     this.cloudGroup = group;
   }
 
   // ---- floating dust motes ----
   _buildMotes() {
+    const env = this.mapDef.env.motes;
     const rng = mulberry32(31337);
-    const N = 260;
+    const N = env.count;
     const pos = new Float32Array(N * 3);
     for (let i = 0; i < N; i++) {
       pos[i * 3] = randRange(rng, -90, 90);
@@ -424,11 +479,11 @@ export class World {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
-      map: makeGlowTexture(), color: 0xffcf9a, size: 0.55, transparent: true,
+      map: makeGlowTexture(), color: env.color, size: 0.55, transparent: true,
       opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
     });
     this.motes = new THREE.Points(geo, mat);
-    this.scene.add(this.motes);
+    this.root.add(this.motes);
   }
 
   // ---- per-frame update ----
@@ -452,6 +507,13 @@ export class World {
     if (this.motes) {
       this.motes.rotation.y += dt * 0.008;
       this.motes.position.y = Math.sin(time * 0.12) * 2.5;
+    }
+    // hazards run on their own clock, frozen outside live play so a paused
+    // solo run can't get struck; multiplayer never pauses, so clients stay
+    // in lockstep off the shared round seed
+    if (this.hazards && this._game?.state === 'playing') {
+      this.hazardClock += dt;
+      this.hazards.update(dt);
     }
   }
 }
@@ -477,7 +539,7 @@ function paintGeometry(geo, colorA, colorB, rng, jitter = 0.15) {
 
 // Build one floating island: noisy grass top + tapering rocky underside.
 // Vertices are colored per-face after toNonIndexed for a faceted painterly look.
-function buildIslandGeometry(island, depth, seed, bare = false) {
+function buildIslandGeometry(island, depth, seed, bare = false, palette = DEFAULT_PALETTE) {
   const segs = Math.max(20, Math.floor(island.R * 2.2));
   const topRings = 5;
   const underRings = 6;
@@ -560,20 +622,24 @@ function buildIslandGeometry(island, depth, seed, bare = false) {
     const topRef = isPlatform ? island.topY : island.topY;
     const rel = topRef - cy;
 
-    if (rel < 0.9 && !bare) {
+    if (island.flat && rel < 0.9) {
+      // flat training-style plate: light stone checker tiles
+      const check = (Math.floor(cx / 4) + Math.floor(cz / 4)) % 2 === 0;
+      c.copy(check ? palette.stone : palette.stoneDark);
+    } else if (rel < 0.9 && !bare) {
       // grass: blend two greens with warm patches
       const patch = fbm2(cx * 0.07 + seed, cz * 0.07, 3);
-      c.lerpColors(PALETTE.grassA, PALETTE.grassB, patch);
-      if (patch > 0.62) c.lerp(PALETTE.grassWarm, (patch - 0.62) * 1.6);
+      c.lerpColors(palette.grassA, palette.grassB, patch);
+      if (patch > 0.62) c.lerp(palette.grassWarm, (patch - 0.62) * 1.6);
     } else if (rel < 0.9 && bare) {
       // platform top: mossy rock
-      c.lerpColors(PALETTE.rockA, PALETTE.grassA, 0.45 + rng() * 0.2);
+      c.lerpColors(palette.rockA, palette.grassA, 0.45 + rng() * 0.2);
     } else if (rel < 2.2) {
-      c.copy(PALETTE.dirt);
+      c.copy(palette.dirt);
     } else {
       const t = clamp((rel - 2) / (depth * 0.9), 0, 1);
-      c.lerpColors(PALETTE.rockA, PALETTE.rockTip, t);
-      c.lerp(PALETTE.rockB, noise2(cx * 0.2, cz * 0.2) * 0.5);
+      c.lerpColors(palette.rockA, palette.rockTip, t);
+      c.lerp(palette.rockB, noise2(cx * 0.2, cz * 0.2) * 0.5);
     }
     c.offsetHSL(0, 0, (rng() - 0.5) * 0.06);
     for (let v = 0; v < 3; v++) {
@@ -587,7 +653,7 @@ function buildIslandGeometry(island, depth, seed, bare = false) {
   return geo;
 }
 
-function makeColumnGeometry(rng, h, broken) {
+function makeColumnGeometry(rng, h, broken, palette = DEFAULT_PALETTE) {
   const geos = [];
   const base = new THREE.CylinderGeometry(0.75, 0.85, 0.5, 8);
   base.translate(0, 0.25, 0);
@@ -611,11 +677,11 @@ function makeColumnGeometry(rng, h, broken) {
     geos.push(cap);
   }
   const merged = mergeGeometries(geos.map(g => g.toNonIndexed()));
-  paintGeometry(merged, PALETTE.stone, PALETTE.stoneDark, rng, 0.18);
+  paintGeometry(merged, palette.stone, palette.stoneDark, rng, 0.18);
   return merged;
 }
 
-function makeTree(rng, p) {
+function makeTree(rng, p, palette = DEFAULT_PALETTE) {
   const group = new THREE.Group();
   const h = randRange(rng, 2.6, 4.6);
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.3, h, 6);
@@ -628,8 +694,8 @@ function makeTree(rng, p) {
   group.add(trunk);
 
   const warm = rng() < 0.3;
-  const leafA = warm ? new THREE.Color('#c9903d') : new THREE.Color('#3f7d46');
-  const leafB = warm ? new THREE.Color('#e0b04f') : new THREE.Color('#71ad57');
+  const leafA = warm ? palette.leafWarmA : palette.leafA;
+  const leafB = warm ? palette.leafWarmB : palette.leafB;
   const blobs = 2 + Math.floor(rng() * 2);
   for (let i = 0; i < blobs; i++) {
     const s = randRange(rng, 1.1, 2.0) * (1 - i * 0.18);
@@ -652,10 +718,10 @@ function makeTree(rng, p) {
   return group;
 }
 
-function makeRock(rng, p) {
+function makeRock(rng, p, palette = DEFAULT_PALETTE) {
   const geo = new THREE.DodecahedronGeometry(randRange(rng, 0.5, 1.5), 0).toNonIndexed();
   geo.scale(1, randRange(rng, 0.55, 0.8), 1);
-  paintGeometry(geo, PALETTE.rockA, PALETTE.rockB, rng, 0.12);
+  paintGeometry(geo, palette.rockA, palette.rockB, rng, 0.12);
   const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
   rock.position.copy(p);
   rock.position.y -= 0.15;
@@ -665,9 +731,9 @@ function makeRock(rng, p) {
   return rock;
 }
 
-function makeCrystalCluster(rng, p) {
+function makeCrystalCluster(rng, p, palette = DEFAULT_PALETTE) {
   const group = new THREE.Group();
-  const hue = rng() < 0.5 ? 0x7be8ff : 0xc48bff;
+  const hue = rng() < 0.5 ? palette.crystalA : palette.crystalB;
   const mat = new THREE.MeshStandardMaterial({
     color: hue, emissive: hue, emissiveIntensity: 1.8,
     roughness: 0.25, metalness: 0.1, flatShading: true,
@@ -690,7 +756,7 @@ function makeCrystalCluster(rng, p) {
   return { group, mat };
 }
 
-function makeGrassTufts(island, rng, count) {
+function makeGrassTufts(island, rng, count, palette = DEFAULT_PALETTE) {
   const blade = new THREE.PlaneGeometry(0.7, 0.55);
   blade.translate(0, 0.26, 0);
   const cross = mergeGeometries([blade, blade.clone().rotateY(Math.PI / 2)]);
@@ -719,8 +785,8 @@ function makeGrassTufts(island, rng, count) {
     dummy.scale.set(s, s * randRange(rng, 0.8, 1.3), s);
     dummy.updateMatrix();
     inst.setMatrixAt(placed, dummy.matrix);
-    color.lerpColors(PALETTE.grassA, PALETTE.grassB, rng());
-    if (rng() < 0.2) color.lerp(PALETTE.grassWarm, 0.6);
+    color.lerpColors(palette.grassA, palette.grassB, rng());
+    if (rng() < 0.2) color.lerp(palette.grassWarm, 0.6);
     color.offsetHSL(0, 0.05, 0.04);
     inst.setColorAt(placed, color);
     placed++;

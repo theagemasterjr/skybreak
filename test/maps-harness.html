@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SKYBREAK maps harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #cfc; font: 13px monospace; }
+  iframe { width: 60%; height: 100%; border: 0; float: left; }
+  #out { white-space: pre-wrap; padding: 12px; }
+</style>
+</head>
+<body>
+<iframe id="p1" src="/"></iframe>
+<div id="out">booting…</div>
+<script>
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += '\n' + s; };
+
+async function waitFor(fn, timeout = 15000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    try { const v = fn(); if (v) return v; } catch {}
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error('timeout waiting');
+}
+
+(async () => {
+  const win = await waitFor(() => {
+    const w = document.getElementById('p1').contentWindow;
+    return w.SKYBREAK ? w : null;
+  });
+  const g = win.SKYBREAK.game;
+  const step = win.SKYBREAK.step;
+  const { MAPS, MAP_DEFS } = win.SKYBREAK;
+  const results = [];
+  out.textContent = 'maps: ' + MAPS.join(', ');
+
+  for (const id of MAPS) {
+    try {
+      const before = g.scene.children.length;
+      g.loadMap(id, 42);
+      g.loadMap(id, 42);                        // double-load: dispose leak check
+      const after = g.scene.children.length;
+      if (after !== before) results.push(`FAIL ${id}: leaked ${after - before} scene nodes`);
+
+      const sp = g.world.soloSpawn;
+      if (g.world.groundHeightBelow(sp.x, sp.z, sp.y + 1, 0, 3) === null) {
+        results.push(`FAIL ${id}: solo spawn has no ground`);
+      }
+      const spawnSets = [g.world.mapDef.spawns.duel, g.world.mapDef.spawns.ffa];
+      for (const set of spawnSets) {
+        for (const s of set) {
+          if (g.world.groundHeightBelow(s[0], s[2], s[1] + 1, 0, 3.5) === null) {
+            results.push(`FAIL ${id}: spawn [${s}] has no ground`);
+          }
+        }
+      }
+      step(1 / 60, 120);                        // 2s of sim: no throws
+      log(`ok ${id}`);
+    } catch (e) {
+      results.push(`FAIL ${id}: threw ${e.message}`);
+    }
+  }
+
+  // hazard determinism: two identically-seeded loads log identical schedules
+  for (const id of MAPS) {
+    if (!MAP_DEFS[id].makeHazards) continue;
+    try {
+      const logs = [];
+      for (let run = 0; run < 2; run++) {
+        g.loadMap(id, 7);
+        g.world.hazards.log = [];
+        g.state = 'playing';                    // hazard clock only runs in play
+        step(1 / 60, 60 * 40);                  // 40s of sim
+        g.state = 'menu';
+        logs.push(JSON.stringify(g.world.hazards.log.slice(0, 3)));
+      }
+      if (logs[0] !== logs[1]) results.push(`FAIL ${id}: hazard schedule not deterministic\n  a=${logs[0]}\n  b=${logs[1]}`);
+      else log(`ok ${id} hazards deterministic ${logs[0]}`);
+    } catch (e) {
+      results.push(`FAIL ${id}: hazard check threw ${e.message}`);
+    }
+  }
+
+  g.loadMap('classic');
+  document.title = results.length ? 'FAIL' : 'PASS';
+  log(results.length ? '\n' + results.join('\n') : '\nPASS');
+})().catch((e) => { document.title = 'FAIL'; log('HARNESS ERROR: ' + e.message); });
+</script>
+</body>
+</html>

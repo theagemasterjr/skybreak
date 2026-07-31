@@ -1,4 +1,5 @@
 import { Game } from './game.js';
+import { MAPS, MAP_DEFS, MP_MAPS } from './maps/index.js';
 import { preloadEnemyModels } from './enemyAssets.js';
 import { preloadChampionModels } from './championAssets.js';
 
@@ -24,5 +25,5 @@ function step(dt = 1 / 60, n = 1) {
   game.render();
 }
 
-window.SKYBREAK = { game, step };
+window.SKYBREAK = { game, step, MAPS, MAP_DEFS, MP_MAPS };
 console.log('[SKYBREAK] full game running');

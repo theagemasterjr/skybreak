@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { World } from './world.js';
+import { getMap } from './maps/index.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { Effects } from './effects.js';
@@ -37,7 +38,8 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 2000);
     this.scene.add(this.camera); // required so viewmodel (camera child) renders
 
-    this.world = new World(this.scene);
+    this.world = null;
+    this.loadMap('classic');
     this.input = new Input(canvas);
     this.player = new Player(this.world, this.camera, this.input);
     this.effects = new Effects(this.scene);
@@ -154,6 +156,24 @@ export class Game {
     });
   }
 
+  // tear down the current world and build the given map in its place.
+  // hazard seed must match across multiplayer clients (rolled by the host).
+  loadMap(mapId, seed = 1) {
+    if (this.world) this.world.dispose();
+    this.world = new World(this.scene, getMap(mapId));
+    this.world._game = this;
+    this.world.resetHazards(seed);
+    if (this.player) this.player.world = this.world;
+    if (this.projectiles) this.projectiles.world = this.world;
+    return this.world;
+  }
+
+  // dev shortcut: ?map=tempest in the URL forces solo/tutorial map choice
+  _resolveMapParam(mapId) {
+    const forced = new URLSearchParams(location.search).get('map');
+    return forced || mapId;
+  }
+
   setClass(classId) {
     if (this.combat) this.combat.dispose();
     this.combat = new PlayerCombat(this, classId);
@@ -175,6 +195,8 @@ export class Game {
   toMenu() {
     if (this.state === 'tutorial') this.tutorial.exit();
     this._clearBattlefield();
+    // menu backdrop is always the classic sunset arena
+    if (this.world.mapDef.id !== 'classic') this.loadMap('classic');
     this.state = 'menu';
     this.mode = 'solo';
     this.menus.show('main');
@@ -182,9 +204,10 @@ export class Game {
     document.exitPointerLock?.();
   }
 
-  startRun(classId) {
+  startRun(classId, mapId = 'classic') {
     this.currentClassId = classId;
     this._clearBattlefield();
+    this.loadMap(this._resolveMapParam(mapId));
     this.setClass(classId);
     this.player.respawn();
     this.player.freeze = false;
@@ -203,9 +226,10 @@ export class Game {
 
   // practice mode: one default class, no waves, no death screen, a couple
   // of stationary dummies to hit. See src/tutorial.js.
-  startTutorial() {
+  startTutorial(classId = 'mage', scriptId = 'basics', mapId = 'classic') {
     this._clearBattlefield();
-    this.setClass('mage');
+    this.loadMap(this._resolveMapParam(mapId));
+    this.setClass(classId);
     this.player.respawn();
     this.player.freeze = false;
     this.input.enabled = true;
@@ -215,15 +239,16 @@ export class Game {
     this.state = 'tutorial';
     this.mode = 'solo';
     this.waves.reset();
-    this.tutorial.start();
+    this.tutorial.start(scriptId);
     this.input.requestLock();
     this.audio?.play('runStart');
   }
 
   // duel round setup: same as a run but no waves — the opponent is the enemy
-  startDuel(classId) {
+  startDuel(classId, mapId = 'classic', seed = 1) {
     this.currentClassId = classId;
     this._clearBattlefield();
+    this.loadMap(mapId, seed);
     this.setClass(classId);
     this.player.respawn();
     this.player.freeze = false;
@@ -240,9 +265,10 @@ export class Game {
   }
 
   // free-for-all round setup: same as a duel round, different referee
-  startFfa(classId) {
+  startFfa(classId, mapId = 'classic', seed = 1) {
     this.currentClassId = classId;
     this._clearBattlefield();
+    this.loadMap(mapId, seed);
     this.setClass(classId);
     this.player.respawn();
     this.player.freeze = false;

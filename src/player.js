@@ -185,7 +185,7 @@ export class Player {
   }
 
   respawn() {
-    this.position.set(0, 4, 8);
+    this.position.copy(this.world.soloSpawn);
     this.vel.set(0, 0, 0);
     this.health = this.maxHealth;
     this.shield = 0;
@@ -456,7 +456,7 @@ export class Player {
       this.recoverAssistUsed = true;
     }
     if (this.position.y < -110) {
-      this.position.set(0, 6, 8);
+      this.position.copy(this.world.soloSpawn).y += 2;
       this.vel.set(0, 0, 0);
       this.trauma = 1;
       this.invulnTimer = 1.2;
