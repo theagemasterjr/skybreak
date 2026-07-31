@@ -74,10 +74,10 @@ export const BELT = {
     { x: -42, y: 26, z: 44, w: 9, d: 9, yaw: 4.2, tilt: 0.9 },     // steep ramp
     { x: 24, y: 14, z: 6, w: 6, d: 6, yaw: 2.8, tilt: 0.2 },       // little hop-stone
     { x: 2, y: 28, z: -18, w: 13, d: 13, yaw: 1.7, tilt: -0.5 },   // the big tilted crown
-    // THE CANOPY: a huge jagged shard crowning the whole map, face-down —
-    // fly high enough and it catches you, and you walk its underside upside
-    // down with the entire belt hanging overhead
-    { x: 4, y: 44, z: 4, w: 17, d: 17, yaw: 0.9, tilt: Math.PI - 0.1, sides: 7, squash: 0.55 },
+    // THE CANOPY: a colossal jagged shard crowning the whole map — bigger
+    // than the main island — hanging high, face-down. Fly up under it and it
+    // catches you; you walk its underside with the entire belt overhead.
+    { x: 4, y: 62, z: 4, w: 32, d: 32, yaw: 0.9, tilt: Math.PI - 0.1, sides: 7, squash: 0.55 },
   ],
 
   spawns: {
