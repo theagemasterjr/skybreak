@@ -169,7 +169,7 @@ export class Game {
     // same map again? reuse the built world — skips a full geometry rebuild
     // (the map-switch hitch) — just re-seed hazards and rewind the clock so
     // multiplayer clients still agree on platform orbits
-    if (this.world && this.world.mapDef.id === getMap(mapId).id) {
+    if (this.world && this.world.mapDef.id === getMap(mapId).id && !this.world._otMutated) {
       this.world.clock = 0;
       this.world.resetHazards(seed);
       return this.world;

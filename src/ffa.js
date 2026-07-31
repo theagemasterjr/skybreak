@@ -354,8 +354,9 @@ export class Ffa {
           g.player.heal(1 * dt);
         }
 
-        // void death
-        if (g.player.alive && g.player.position.y < -95) {
+        // void death (either direction once gravity has flipped)
+        const sky = g.world.skyKillY;
+        if (g.player.alive && (g.player.position.y < -95 || (sky !== null && g.player.position.y > sky))) {
           g.player.alive = false;
           this.localDied();
         }

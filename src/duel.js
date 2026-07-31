@@ -146,9 +146,9 @@ export class Duel {
     if (this._fxBuf) this._fxBuf.length = 0;
 
     // fresh hazard schedule per round, still seed-locked across both clients;
-    // clock rewind puts orbiting platforms back under the spawn points
-    g.world.clock = 0;
-    g.world.resetHazards((this.seed || 1) + n);
+    // clock rewind puts orbiting platforms back under the spawn points. Goes
+    // through loadMap so an overtime-wrecked arena rebuilds clean.
+    g.loadMap(this.mapId, (this.seed || 1) + n);
 
     const table = g.world.mapDef.spawns.duel;
     const mine = this.role === 'host' ? table[0] : table[1];
@@ -222,8 +222,10 @@ export class Duel {
         g.player.heal(1 * dt);
       }
 
-      // falling into the void loses the round (before the solo-mode reset at -110)
-      if (g.player.alive && g.player.position.y < -95) {
+      // falling into the void loses the round (before the solo-mode reset at
+      // -110) — and so does flying off into the sky once gravity has flipped
+      const sky = g.world.skyKillY;
+      if (g.player.alive && (g.player.position.y < -95 || (sky !== null && g.player.position.y > sky))) {
         g.player.alive = false;
         this.localDied();
       }

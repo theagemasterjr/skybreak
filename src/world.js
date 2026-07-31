@@ -66,6 +66,14 @@ export class World {
     this.hazardClock = 0;
     this.hazardRng = mulberry32(1);
 
+    // overtime: per-map escalation event (duel/ffa/botduel only). When an
+    // event mutates the arena (removes islands/platforms/plates), _otMutated
+    // makes the next loadMap rebuild instead of reusing the world.
+    this.overtime = null;
+    this._otMutated = false;
+    this.gravityFlipped = false;   // Belt finale: default gravity points UP
+    this.skyKillY = null;          // when set, flying above this height = void death
+
     this._buildLights();
     this._buildSky();
     this._buildIslands();
@@ -85,7 +93,7 @@ export class World {
   advanceClocks(rawDt, state) {
     if (state === 'paused') return;
     this.clock += rawDt;
-    if (this.hazards && state === 'playing') this.hazardClock += rawDt;
+    if ((this.hazards || this.overtime) && state === 'playing') this.hazardClock += rawDt;
   }
 
   resetHazards(seed = 1) {
@@ -105,6 +113,31 @@ export class World {
     this.hazards = this.mapDef.makeHazards
       ? this.mapDef.makeHazards(this, this._game)
       : null;
+    this.gravityFlipped = false;
+    this.skyKillY = null;
+    this.overtime = this.mapDef.makeOvertime
+      ? this.mapDef.makeOvertime(this, this._game)
+      : null;
+  }
+
+  // ---- overtime arena mutation ----
+  removeIsland(island) {
+    const i = this.islands.indexOf(island);
+    if (i >= 0) this.islands.splice(i, 1);
+    this.columns = this.columns.filter((c) => c.island !== island);
+    this._otMutated = true;
+  }
+
+  removePlatform(p) {
+    const i = this.platforms.indexOf(p);
+    if (i >= 0) this.platforms.splice(i, 1);
+    this._otMutated = true;
+  }
+
+  removeGravPlate(pl) {
+    const i = this.gravPlates.indexOf(pl);
+    if (i >= 0) this.gravPlates.splice(i, 1);
+    this._otMutated = true;
   }
 
   dispose() {
@@ -360,20 +393,25 @@ export class World {
         x: d.x, z: d.z, topY: d.topY, R: d.R, domeH: d.domeH,
         edgeSeed: d.seed, depth: d.depth, flat: !!d.flat,
       };
+      // per-island group (mesh + decorations, children in world space) so an
+      // overtime event can sink/launch a whole island by animating the group
+      const grp = new THREE.Group();
+      this.root.add(grp);
+      island.group = grp;
       this.islands.push(island);
 
       const geo = buildIslandGeometry(island, d.depth, d.seed, { bare: !!d.bare }, this.palette);
       const mesh = new THREE.Mesh(geo, islandMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      this.root.add(mesh);
+      grp.add(mesh);
 
       const rng = mulberry32(d.seed * 977 + 5);
-      this._decorate(island, d, rng);
+      this._decorate(island, d, rng, grp);
     }
   }
 
-  _decorate(island, d, rng) {
+  _decorate(island, d, rng, grp = this.root) {
     const placeOnIsland = (marginT = 0.85) => {
       // rejection-sample a point inside the island edge
       for (let i = 0; i < 12; i++) {
@@ -391,18 +429,19 @@ export class World {
     for (let i = 0; i < (d.trees || 0); i++) {
       const p = placeOnIsland(0.8);
       if (d.ruins && Math.hypot(p.x - island.x, p.z - island.z) < 12) { i--; continue; }
-      this.root.add(makeTree(rng, p, this.palette));
+      grp.add(makeTree(rng, p, this.palette));
     }
     // rocks
     for (let i = 0; i < (d.rocks || 0); i++) {
       const p = placeOnIsland(0.92);
       const rock = makeRock(rng, p, this.palette);
-      this.root.add(rock);
+      grp.add(rock);
       // maps can opt into solid boulders (belt: bigger rocks, fewer bushes)
       if (this.mapDef.solidRocks && rock.userData.r > 0.7) {
         this.columns.push({
           x: p.x, z: p.z, r: rock.userData.r * 0.85,
           yBottom: p.y - 1, yTop: p.y + rock.userData.r * 0.8,
+          island,
         });
       }
     }
@@ -410,12 +449,12 @@ export class World {
     for (let i = 0; i < (d.crystals || 0); i++) {
       const p = placeOnIsland(0.75);
       const { group, mat } = makeCrystalCluster(rng, p, this.palette);
-      this.root.add(group);
+      grp.add(group);
       this.crystals.push(mat);
     }
     // grass tufts
     if (!d.bare && !d.flat) {
-      this.root.add(makeGrassTufts(island, rng, Math.floor(island.R * island.R * 0.55), this.palette));
+      grp.add(makeGrassTufts(island, rng, Math.floor(island.R * island.R * 0.55), this.palette));
     }
     // ruins centerpiece
     if (d.ruins) this._buildRuins(island);
@@ -638,7 +677,7 @@ export class World {
       const t1 = new THREE.Vector3(1, 0, 0).applyEuler(e);
       const t2 = new THREE.Vector3(0, 0, 1).applyEuler(e);
       const center = new THREE.Vector3(def.x, def.y, def.z);
-      this.gravPlates.push({ center, normal, t1, t2, w: def.w, d: def.d, fieldH: FIELD_H });
+      this.gravPlates.push({ center, normal, t1, t2, w: def.w, d: def.d, fieldH: FIELD_H, canopy: !!def.canopy });
 
       // crystalline slab: chunky faceted plate, painterly purple — and no
       // two alike: 5- to 8-sided, stretched, squashed, tapered differently
@@ -660,6 +699,7 @@ export class World {
       slab.castShadow = true;
       slab.receiveShadow = true;
       this.root.add(slab);
+      this.gravPlates[this.gravPlates.length - 1].slab = slab;
       // glowing rune-ring on the pulling face
       const face = new THREE.Mesh(
         new THREE.RingGeometry(R * 0.45, R * 0.82, sides),
@@ -732,7 +772,10 @@ export class World {
   // Graviton plates pull one way only: onto their face.
   gravityAt(pos, out) {
     const mul = this.mapDef.env.gravityMul ?? 1;
-    out.set(0, -1, 0);
+    // Belt overtime finale: default gravity points UP (slightly off-axis so
+    // the camera's up-vector math never hits the degenerate opposite case)
+    if (this.gravityFlipped) out.set(0.03, 1, 0).normalize();
+    else out.set(0, -1, 0);
     // plates claim their box-shaped field outright
     for (const pl of this.gravPlates) {
       _gv.copy(pos).sub(pl.center);
@@ -793,6 +836,9 @@ export class World {
     // unscaled dt); frame work here can use the scaled dt for slow-mo juice
     if (this.hazards && this._game?.state === 'playing') {
       this.hazards.update(dt);
+    }
+    if (this.overtime && this._game?.state === 'playing') {
+      this.overtime.update(dt);
     }
   }
 }
