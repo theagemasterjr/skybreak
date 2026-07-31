@@ -532,7 +532,7 @@ export class Menus {
       </div>
     `;
     this.el.appendChild(s);
-    s.querySelector('#btn-again').addEventListener('click', () => this.game.startRun(this.game.currentClassId));
+    s.querySelector('#btn-again').addEventListener('click', () => this.game.startRun(this.game.currentClassId, this.game.currentMapId || 'classic'));
     s.querySelector('#btn-change').addEventListener('click', () => this.game.showSelect());
   }
 
@@ -712,7 +712,7 @@ export class Menus {
       const idx = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code);
       if (idx >= 0) this._pickClass(CLASS_LIST[idx]);
     } else if (active('death') && e.code === 'Enter') {
-      g.startRun(g.currentClassId);
+      g.startRun(g.currentClassId, g.currentMapId || 'classic');
     } else if (active('pause') && e.code === 'Enter') {
       g.resume();
     } else if (active('duelpause') && e.code === 'Enter') {

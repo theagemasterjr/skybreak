@@ -216,7 +216,8 @@ export class Game {
   startRun(classId, mapId = 'classic') {
     this.currentClassId = classId;
     this._clearBattlefield();
-    this.loadMap(this._resolveMapParam(mapId));
+    this.currentMapId = this._resolveMapParam(mapId);   // "FIGHT AGAIN" replays this
+    this.loadMap(this.currentMapId);
     this.setClass(classId);
     this.player.respawn();
     this.player.freeze = false;
