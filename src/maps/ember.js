@@ -1,0 +1,231 @@
+import * as THREE from 'three';
+
+// ---------------------------------------------------------------------------
+// Ember Reach: obsidian islands hanging over a glowing caldera. Signature
+// verb: FIRE GEYSERS on a visible rhythm — catching an eruption launches you
+// sky-high; loitering in the blast column burns. Geyser phase is a pure
+// function of the hazard clock, so all multiplayer clients stay in lockstep.
+// ---------------------------------------------------------------------------
+
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+
+// vents: [x, z] — resolved onto their island tops at build time
+const VENTS = [
+  [42, -8], [50, 4],          // island 0
+  [-30, 34],                  // island 2
+  [-42, -20],                 // island 3
+  [8, -48],                   // island 5
+];
+
+const CYCLE = 9;        // seconds per full geyser cycle
+const WARN_T = 1.5;     // steam warning before the blast
+const BLAST_T = 2;      // eruption duration
+const COL_R = 2.2;      // blast column radius
+const COL_H = 18;       // blast column height
+const LAUNCH_VY = 32;
+const BURN_DPS = 10;
+
+class EmberHazards {
+  constructor(world, game) {
+    this.world = world;
+    this.game = game;
+    this.log = [];
+
+    this.vents = VENTS.map(([x, z], i) => {
+      const y = world.groundHeightBelow(x, z, 60, 0, 65) ?? 0;
+      // fixed per-vent phase offsets (seeded once) stagger the rhythm
+      const phase = world.hazardRng() * CYCLE;
+      this.log.push([i, Math.round(phase * 100) / 100]);
+
+      // vent dressing: dark rock ring + inner glow disc
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(COL_R * 0.8, 0.4, 7, 14),
+        new THREE.MeshStandardMaterial({ color: 0x241f1c, roughness: 1, flatShading: true })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(x, y + 0.15, z);
+      world.hazardFx.add(ring);
+      const glow = new THREE.Mesh(
+        new THREE.CircleGeometry(COL_R * 0.7, 16),
+        new THREE.MeshBasicMaterial({
+          color: 0xff6a20, transparent: true, opacity: 0.5,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        })
+      );
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.set(x, y + 0.12, z);
+      world.hazardFx.add(glow);
+
+      // eruption column (scaled up during blasts)
+      const col = new THREE.Mesh(
+        new THREE.CylinderGeometry(COL_R * 0.5, COL_R * 0.9, COL_H, 10, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0xff8a30, transparent: true, opacity: 0,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        })
+      );
+      col.position.set(x, y + COL_H / 2, z);
+      world.hazardFx.add(col);
+
+      return { x, y, z, phase, glow, col, launched: new Set(), burnTick: 0 };
+    });
+  }
+
+  // cycle position for a vent: [0, CYCLE) — blast starts at 0, warn precedes it
+  _phase(vent) {
+    const t = (this.world.hazardClock + vent.phase) % CYCLE;
+    return t;
+  }
+
+  update(dt) {
+    const g = this.game;
+    const p = g.player;
+    for (const v of this.vents) {
+      const t = this._phase(v);
+      const warning = t >= CYCLE - WARN_T;             // about to blow
+      const blasting = t < BLAST_T;
+
+      // visuals
+      v.glow.material.opacity = warning ? 0.5 + 0.4 * Math.sin(this.world.hazardClock * 24) : 0.35;
+      v.col.material.opacity = blasting ? 0.45 * (1 - t / BLAST_T) + 0.15 : 0;
+      if (warning && Math.random() < dt * 14) {
+        g.effects.glow(_v1.set(v.x + (Math.random() - 0.5), v.y + 1 + Math.random() * 2, v.z + (Math.random() - 0.5)), {
+          color: 0xffaa66, size: 0.8, life: 0.4, grow: 1.2, additive: false,
+        });
+      }
+      if (blasting && Math.random() < dt * 30) {
+        g.effects.burst(_v1.set(v.x, v.y + Math.random() * COL_H * 0.7, v.z), {
+          count: 3, color: 0xff9a40, color2: 0xffd090, speed: 4, size: 0.35, life: 0.3, gravity: -6,
+        });
+      }
+
+      // eruption start: clear the launched set, thump
+      if (t < dt && !v.justBlew) {
+        v.justBlew = true;
+        v.launched.clear();
+        g.effects.impactBurst(_v1.set(v.x, v.y + 1, v.z), { color: 0xff9a40, size: 4 });
+        g.effects.ring(_v1.set(v.x, v.y + 0.4, v.z), { color: 0xff8a30, endRadius: COL_R + 2.5, life: 0.4, thickness: 0.4 });
+        if (p.position.distanceTo(_v1.set(v.x, v.y, v.z)) < 46) g.audio?.play('explosion');
+      } else if (t >= dt) {
+        v.justBlew = false;
+      }
+
+      if (!blasting) { v.burnTick = 0; continue; }
+
+      // who's in the column?
+      const inCol = (pos, radius = 0) =>
+        pos.y > v.y - 1 && pos.y < v.y + COL_H &&
+        Math.hypot(pos.x - v.x, pos.z - v.z) < COL_R + radius;
+
+      // the local player: one big launch per eruption + burn while inside
+      if (p.alive && inCol(p.position, 0.4)) {
+        if (!v.launched.has('me')) {
+          v.launched.add('me');
+          p.applyKnockback(_v2.set(0, Math.max(0, LAUNCH_VY - p.vel.y), 0));
+          g.effects.ring(p.position.clone(), { color: 0xffb060, endRadius: 3, life: 0.35, axis: 'x', thickness: 0.3 });
+          g.audio?.play('doubleJump');
+        }
+      }
+      // burn ticks (whole numbers so damage numbers read cleanly)
+      v.burnTick -= dt;
+      if (v.burnTick <= 0) {
+        v.burnTick = 0.5;
+        const tick = BURN_DPS * 0.5;
+        if (p.alive && inCol(p.position, 0.4)) p.takeDamage(tick, _v1.set(v.x, v.y, v.z), {});
+        for (const e of g.enemies) {
+          if (!e.alive || e.type === 'duelist') continue;
+          if (inCol(e.position, e.radius)) {
+            const kb = v.launched.has(e) ? null : _v2.set(0, LAUNCH_VY * 0.6, 0).clone();
+            v.launched.add(e);
+            e.takeDamage(tick, { knockback: kb, source: 'hazard' });
+          }
+        }
+      }
+    }
+  }
+}
+
+export const EMBER = {
+  id: 'ember',
+  name: 'EMBER REACH',
+  blurb: 'ride the geysers, mind the burn',
+
+  env: {
+    sunDir: [0.45, 0.25, -0.86],
+    sunColor: 0xff9a55,
+    sunIntensity: 2.2,
+    hemi: [0x8a4535, 0x38201a, 0.8],
+    fog: { color: '#8a3a22', near: 95, far: 540 },
+    sky: {
+      zenith: '#3a1a20', mid: '#7a2e22', horizon: '#ff7a30', sun: '#ffd9a8',
+      starHeight: 0.4, starDensity: 0.999, aurora: 0,
+    },
+    glow: [
+      { scale: 460, opacity: 0.5, color: 0xff7a30 },
+      { scale: 190, opacity: 0.85, color: 0xffd9a8 },
+    ],
+    clouds: { tintA: 0x5a4a44, tintB: 0x8a7468, low: 22, far: 12, high: 5 },
+    motes: { color: 0xff9a44, count: 300 },
+    palette: {
+      grassA: '#4a4340', grassB: '#5a4f45', grassWarm: '#7a3520',
+      dirt: '#3a3230', rockA: '#2e2a28', rockB: '#181514', rockTip: '#0e0c0b',
+      stone: '#4a423c', stoneDark: '#332c28',
+      leafA: '#5a3a28', leafB: '#7a4a2a', leafWarmA: '#8a4520', leafWarmB: '#a85a28',
+      crystalA: 0xff7a30, crystalB: 0xffb055,
+    },
+  },
+
+  islands: [
+    { x: 46, z: -2, topY: 0, R: 14, domeH: 1.2, depth: 24, seed: 201, trees: 2, rocks: 5, crystals: 2 },
+    { x: 14, z: 30, topY: 9, R: 9, domeH: 1.0, depth: 15, seed: 213, trees: 1, rocks: 3, crystals: 1 },
+    { x: -30, z: 36, topY: 14, R: 11, domeH: 1.1, depth: 18, seed: 227, trees: 2, rocks: 4, crystals: 2 },
+    { x: -44, z: -16, topY: 4, R: 12, domeH: 1.2, depth: 20, seed: 239, trees: 1, rocks: 4, crystals: 1 },
+    { x: -8, z: -20, topY: 18, R: 8, domeH: 0.9, depth: 13, seed: 251, trees: 1, rocks: 2, crystals: 1 },
+    { x: 8, z: -50, topY: -4, R: 11, domeH: 1.1, depth: 18, seed: 263, trees: 2, rocks: 4, crystals: 2 },
+  ],
+
+  platformSeed: 606,
+  platforms: [
+    { x: 26, z: 16, baseY: 5 }, { x: -12, z: 10, baseY: 8 },
+    { x: -30, z: -34, baseY: 2 }, { x: 30, z: -28, baseY: 7 },
+  ],
+
+  // the caldera: a vast glowing lava disc far below + magma-vein cracks
+  build(world, root, rng) {
+    const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff5a20, fog: false });
+    const lava = new THREE.Mesh(new THREE.CircleGeometry(320, 40), lavaMat);
+    lava.rotation.x = -Math.PI / 2;
+    lava.position.y = -85;
+    root.add(lava);
+    // hot inner pool
+    const core = new THREE.Mesh(
+      new THREE.CircleGeometry(120, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffa040, fog: false })
+    );
+    core.rotation.x = -Math.PI / 2;
+    core.position.y = -84.5;
+    root.add(core);
+    // rising heat shimmer handled by motes; add ember pillars of light
+    const pillarMat = new THREE.MeshBasicMaterial({
+      color: 0xff6a20, transparent: true, opacity: 0.05,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.7;
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(6, 9, 90, 8, 1, true), pillarMat);
+      pillar.position.set(Math.cos(a) * 150, -40, Math.sin(a) * 150);
+      root.add(pillar);
+    }
+  },
+
+  makeHazards(world, game) {
+    return new EmberHazards(world, game);
+  },
+
+  spawns: {
+    solo: [44, 3, 0],
+    duel: [[44, 3, 0, Math.PI / 2], [-42, 7, -14, -Math.PI / 2]],
+    ffa: [[44, 3, 0, Math.PI / 2], [-42, 7, -14, -Math.PI / 2], [-28, 17, 34, 2.4], [8, -1, -48, -0.16]],
+  },
+};

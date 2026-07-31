@@ -75,9 +75,9 @@ for (const id of MAPS) {
     for (let r = 0; r < 2; r++) {
       world._game = fakeGame;
       world.resetHazards(7);
-      world.hazards.log = [];
+      world.hazards.log ??= [];   // hazard classes seed this in their constructors
       for (let i = 0; i < 60 * 45; i++) world.update(1 / 60, i / 60);
-      runs.push(JSON.stringify(world.hazards.log.slice(0, 4)));
+      runs.push(JSON.stringify(world.hazards.log.slice(0, 6)));
     }
     if (runs[0] !== runs[1]) fail(`${id}: hazards not deterministic\n  a=${runs[0]}\n  b=${runs[1]}`);
     else ok(`${id} hazards deterministic ${runs[0]}`);
