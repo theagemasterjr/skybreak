@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DuelNet } from './net.js';
 import { DuelOpponent } from './duelOpponent.js';
 import { recordingEffects, applyFx, killFxProps } from './fxNet.js';
+import { randomMapId } from './maps/index.js';
 
 // ---------------------------------------------------------------------------
 // Duel: 1v1 online mode. Owns matchmaking, the message protocol, the round
@@ -19,10 +20,10 @@ import { recordingEffects, applyFx, killFxProps } from './fxNet.js';
 
 const SEND_INTERVAL = 0.05;      // 20Hz snapshots
 const ROUNDS_TO_WIN = 2;         // best of three
-const SPAWNS = {
-  host: { pos: new THREE.Vector3(0, 4.5, 22), yaw: 0 },
-  guest: { pos: new THREE.Vector3(0, 4.5, -22), yaw: Math.PI },
-};
+// spawn points come from the rolled map's def: spawns.duel = [host, guest],
+// each entry [x, y, z, yaw]
+
+const _v1 = new THREE.Vector3();
 
 export class Duel {
   constructor(game) {
@@ -33,6 +34,8 @@ export class Duel {
     this.role = null;
     this.myClass = null;
     this.oppClass = null;
+    this.mapId = 'classic';   // rolled by the host per match
+    this.seed = 1;
     this.round = 0;
     this.score = { me: 0, opp: 0 };
     this._sendT = 0;
@@ -100,9 +103,12 @@ export class Duel {
   }
 
   _maybeStart() {
-    // the host fires the starting gun once both fighters are locked in
+    // the host fires the starting gun once both fighters are locked in —
+    // and rolls the battleground + hazard seed the whole match plays on
     if (this.role === 'host' && this.myClass && this.oppClass) {
-      this.net.send({ t: 'start' });
+      this.mapId = randomMapId();
+      this.seed = (Math.random() * 1e9) | 0;
+      this.net.send({ t: 'start', map: this.mapId, seed: this.seed });
       this._beginMatch();
     }
   }
@@ -110,7 +116,7 @@ export class Duel {
   _beginMatch() {
     const g = this.game;
     g.mode = 'duel';
-    g.startDuel(this.myClass);
+    g.startDuel(this.myClass, this.mapId || 'classic', this.seed || 1);
     this.avatar = new DuelOpponent(g, this, this.oppClass);
     g.enemies.push(this.avatar);
     g.projectiles.onSpawn = (o) => this._sendProjectile(o);
@@ -139,17 +145,21 @@ export class Duel {
     killFxProps(this.avatar);   // stale rival props (orb, anchor) don't cross rounds
     if (this._fxBuf) this._fxBuf.length = 0;
 
-    const mine = this.role === 'host' ? SPAWNS.host : SPAWNS.guest;
-    const theirs = this.role === 'host' ? SPAWNS.guest : SPAWNS.host;
+    // fresh hazard schedule per round, still seed-locked across both clients
+    g.world.resetHazards((this.seed || 1) + n);
+
+    const table = g.world.mapDef.spawns.duel;
+    const mine = this.role === 'host' ? table[0] : table[1];
+    const theirs = this.role === 'host' ? table[1] : table[0];
     g.player.respawn();
-    g.player.position.copy(mine.pos);
-    g.player.yaw = mine.yaw;
+    g.player.position.set(mine[0], mine[1], mine[2]);
+    g.player.yaw = mine[3];
     g.player.pitch = 0;
     g.player.freeze = true;
-    this.avatar.respawn(theirs.pos, theirs.yaw);
+    this.avatar.respawn(_v1.set(theirs[0], theirs[1], theirs[2]), theirs[3]);
 
     g.hud.setDuelInfo(this.round, this.score.me, this.score.opp);
-    g.hud.announce(`ROUND ${n}`, '');
+    g.hud.announce(n === 1 ? g.world.mapDef.name : `ROUND ${n}`, '');
   }
 
   // ---------- per-frame (driven from Game.tick, all states) ----------
@@ -272,6 +282,8 @@ export class Duel {
         break;
       case 'start':
         if (this.role === 'guest' && this.phase === 'select' && this.myClass && this.oppClass) {
+          this.mapId = m.map || 'classic';
+          this.seed = m.seed || 1;
           this._beginMatch();
         }
         break;

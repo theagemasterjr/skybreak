@@ -3,6 +3,8 @@ import { CLASSES, CLASS_LIST } from './classes.js';
 import { ENEMY_TYPES, ENEMY_INFO } from './enemies.js';
 import { MODEL_BUILDERS } from './enemyModels.js';
 import { getSensMult, setSensMult, getAimSensMult, setAimSensMult } from './settings.js';
+import { MAP_DEFS, MP_MAPS, randomMapId } from './maps/index.js';
+import { TUTORIAL_SCRIPTS } from './tutorials.js';
 
 // ---------------------------------------------------------------------------
 // Menus: main title, class select, pause, death, and codex screens.
@@ -23,8 +25,10 @@ export class Menus {
     this.el = document.createElement('div');
     this.el.id = 'menus';
     root.appendChild(this.el);
+    this.soloMap = 'classic';   // solo map choice (persists across runs)
     this._buildMain();
     this._buildSelect();
+    this._buildTutorialPick();
     this._buildPause();
     this._buildDeath();
     this._buildCodex();
@@ -39,6 +43,7 @@ export class Menus {
       select: this.el.querySelector('#menu-select'),
       pause: this.el.querySelector('#menu-pause'),
       death: this.el.querySelector('#menu-death'),
+      tut: this.el.querySelector('#menu-tut'),
       codex: this.el.querySelector('#menu-codex'),
       match: this.el.querySelector('#menu-match'),
       duelend: this.el.querySelector('#menu-duelend'),
@@ -120,7 +125,7 @@ export class Menus {
       this.show('mp');
       this.game.ffa.refreshRooms();
     });
-    s.querySelector('#btn-tutorial').addEventListener('click', () => this.game.startTutorial());
+    s.querySelector('#btn-tutorial').addEventListener('click', () => this.show('tut'));
     s.querySelector('#btn-codex-main').addEventListener('click', () => this.openCodex('main'));
   }
 
@@ -158,11 +163,17 @@ export class Menus {
         </div>
       `;
     });
+    // solo battleground picker: the 5 arenas + random + training grounds
+    const mapChips = [...MP_MAPS.map((id) => [id, MAP_DEFS[id].name]),
+      ['random', 'RANDOM'], ['training', 'TRAINING']]
+      .map(([id, name]) => `<button class="map-chip${id === 'classic' ? ' on' : ''}" data-map="${id}">${name}</button>`)
+      .join('');
     s.innerHTML = `
       <div class="scrim"></div>
       <div class="menu-content wide">
         <p class="select-heading">CHOOSE YOUR FIGHTER <span>press 1–6</span></p>
         <p id="duel-select-note"></p>
+        <div id="map-row"><span class="map-row-label">BATTLEGROUND</span>${mapChips}</div>
         <div class="class-grid">${cols}</div>
       </div>
       <div id="duel-waiting">
@@ -176,12 +187,55 @@ export class Menus {
     s.querySelectorAll('.class-col').forEach((col) => {
       col.addEventListener('click', () => this._pickClass(col.dataset.class));
     });
+    s.querySelectorAll('.map-chip').forEach((chip) => {
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.soloMap = chip.dataset.map;
+        s.querySelectorAll('.map-chip').forEach((c) => c.classList.toggle('on', c === chip));
+      });
+    });
   }
 
   _pickClass(id) {
     if (this.game.ffa.active && this.game.ffa.phase === 'lobby') { this.game.ffa.pickClass(id); return; }
-    if (this.game.duel.phase === 'select') this.game.duel.pickClass(id);
-    else this.game.startRun(id);
+    if (this.game.duel.phase === 'select') { this.game.duel.pickClass(id); return; }
+    if (this.soloMap === 'training') { this.game.startTutorial(id, 'free', 'training'); return; }
+    this.game.startRun(id, this.soloMap === 'random' ? randomMapId() : this.soloMap);
+  }
+
+  // ---------- tutorial picker ----------
+  _buildTutorialPick() {
+    const s = document.createElement('div');
+    s.id = 'menu-tut';
+    s.className = 'screen';
+    const cards = Object.entries(TUTORIAL_SCRIPTS).map(([id, t]) => {
+      const cls = id === 'basics' ? null : CLASSES[t.classId];
+      const accent = cls ? '#' + cls.color.toString(16).padStart(6, '0') : 'var(--gold, #ffd76a)';
+      const sub = id === 'basics' ? 'movement · attacks · charging' : `master the ${cls.name.toLowerCase()}`;
+      return `
+        <button class="tut-card${id === 'basics' ? ' basics' : ''}" data-tut="${id}" style="--accent:${accent}">
+          <b>${t.title}</b><span>${sub}</span>
+        </button>
+      `;
+    }).join('');
+    s.innerHTML = `
+      <div class="scrim"></div>
+      <div class="menu-content">
+        <h2 class="tut-title">TUTORIALS</h2>
+        <p class="tut-sub">guided objectives on the training grounds — finish them or just mess around</p>
+        <div class="tut-grid">${cards}</div>
+        <button class="btn" id="btn-tut-back">BACK</button>
+      </div>
+    `;
+    this.el.appendChild(s);
+    s.querySelectorAll('.tut-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.tut;
+        const t = TUTORIAL_SCRIPTS[id];
+        this.game.startTutorial(t.classId, id, 'training');
+      });
+    });
+    s.querySelector('#btn-tut-back').addEventListener('click', () => this.show('main'));
   }
 
   // ---------- duel screens ----------
@@ -605,6 +659,10 @@ export class Menus {
         this.el.querySelector('#duel-select-note').textContent = '';
         this.el.querySelector('#duel-waiting').classList.remove('active');
       }
+      // the battleground row is a solo thing — multiplayer rolls its own map
+      const mpPick = this.game.duel.phase === 'select'
+        || (this.game.ffa.active && this.game.ffa.phase === 'lobby');
+      this.el.querySelector('#map-row').style.display = mpPick ? 'none' : '';
     }
   }
 
@@ -646,7 +704,9 @@ export class Menus {
       if (e.code === 'Escape' || e.code === 'Enter') this.closeCodex();
       return;
     }
-    if (active('main') && (e.code === 'Enter' || e.code === 'Space')) {
+    if (active('tut') && e.code === 'Escape') {
+      this.show('main');
+    } else if (active('main') && (e.code === 'Enter' || e.code === 'Space')) {
       g.showSelect();
     } else if (active('select')) {
       const idx = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code);

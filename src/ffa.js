@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomNet, scanRooms, MAX_PLAYERS } from './roomNet.js';
 import { DuelOpponent } from './duelOpponent.js';
 import { recordingEffects, applyFx, killFxProps } from './fxNet.js';
+import { getMap, randomMapId } from './maps/index.js';
 
 // ---------------------------------------------------------------------------
 // Ffa: free-for-all rooms. A named room holds up to 4 players; the creator
@@ -18,12 +19,7 @@ import { recordingEffects, applyFx, killFxProps } from './fxNet.js';
 
 const SEND_INTERVAL = 0.05;    // 20Hz snapshots
 const KILL_CREDIT_T = 8;       // s after a hit that the attacker owns your death
-const SPAWNS = [
-  { pos: [0, 4.5, 22], yaw: 0 },
-  { pos: [0, 4.5, -22], yaw: Math.PI },
-  { pos: [22, 4.5, 0], yaw: Math.PI / 2 },
-  { pos: [-22, 4.5, 0], yaw: -Math.PI / 2 },
-];
+// spawn points come from the rolled map's def (spawns.ffa, [x, y, z, yaw])
 
 const _v1 = new THREE.Vector3();
 
@@ -202,18 +198,21 @@ export class Ffa {
     this.game.menus.renderLobby(this.lobbyState());
   }
 
-  // host presses START in the lobby
+  // host presses START in the lobby: rolls the battleground + seeds hazards
   startRound() {
     if (!this.isHost || this.phase !== 'lobby') return;
     if (this.net.roster.length < 2) return;
     this.round++;
+    const map = randomMapId();
+    const seed = (Math.random() * 1e9) | 0;
+    const table = getMap(map).spawns.ffa;
     const spawns = {};
-    this.net.roster.forEach((p, i) => { spawns[p.id] = SPAWNS[i % SPAWNS.length]; });
-    this.net.send({ t: 'start', round: this.round, spawns });
-    this._beginRound(this.round, spawns);
+    this.net.roster.forEach((p, i) => { spawns[p.id] = table[i % table.length]; });
+    this.net.send({ t: 'start', round: this.round, spawns, map, seed });
+    this._beginRound(this.round, spawns, map, seed);
   }
 
-  _beginRound(round, spawns) {
+  _beginRound(round, spawns, map = 'classic', seed = 1) {
     const g = this.game;
     this.round = round;
     this.phase = 'countdown';
@@ -228,7 +227,7 @@ export class Ffa {
     if (this.isHost) this.net.roomInfoExtra.inRound = true;
 
     const myClass = this.net.me()?.data.cls || 'mage';
-    g.startFfa(myClass);
+    g.startFfa(myClass, map, seed);
     g.projectiles.onSpawn = (o) => this._sendProjectile(o);
     this._fxBuf = [];
     g.playerFx = recordingEffects(g.effects, this._fxBuf);   // my ability VFX -> everyone's screen
@@ -243,22 +242,22 @@ export class Ffa {
       const av = new DuelOpponent(g, this, p.data.cls || 'mage', {
         netId: p.id, name: p.data.name || `PLAYER ${p.id + 1}`,
       });
-      const sp = spawns[p.id] || SPAWNS[0];
-      av.respawn(_v1.set(sp.pos[0], sp.pos[1], sp.pos[2]), sp.yaw);
+      const sp = spawns[p.id] || g.world.mapDef.spawns.ffa[0];
+      av.respawn(_v1.set(sp[0], sp[1], sp[2]), sp[3]);
       this.avatars.set(p.id, av);
       g.enemies.push(av);
     }
 
-    const mine = spawns[this.net.meId] || SPAWNS[0];
+    const mine = spawns[this.net.meId] || g.world.mapDef.spawns.ffa[0];
     g.player.suppressCamera = false;
     g.player.respawn();
-    g.player.position.set(mine.pos[0], mine.pos[1], mine.pos[2]);
-    g.player.yaw = mine.yaw;
+    g.player.position.set(mine[0], mine[1], mine[2]);
+    g.player.yaw = mine[3];
     g.player.pitch = 0;
     g.player.freeze = true;
     if (g.combat) g.combat.viewmodel.group.visible = true;
     g.hud.setSpectating?.(null);
-    g.hud.announce(`ROUND ${round}`, '');
+    g.hud.announce(`${g.world.mapDef.name} — ROUND ${round}`, '');
   }
 
   // ---------------- per-frame ----------------
@@ -448,7 +447,7 @@ export class Ffa {
         break;
       case 'start':
         this._midRound = false;
-        if (this.phase === 'lobby') this._beginRound(m.round, m.spawns);
+        if (this.phase === 'lobby') this._beginRound(m.round, m.spawns, m.map, m.seed);
         break;
       case 'over':
         this._roundOver(m.w);
