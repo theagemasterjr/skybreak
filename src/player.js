@@ -379,6 +379,12 @@ export class Player {
       }
     }
 
+    // orbiting platforms carry their rider: inherit the ground's frame delta
+    if (this.grounded &&
+        this.world.platformCarry(this.position.x, this.position.z, this.position.y, time, dt, _v2)) {
+      this.position.add(_v2);
+    }
+
     // ---- island solid-volume collision -------------------------------
     // groundHeightBelow above only ever *lands* you on top surfaces (it
     // requires vel.y <= 0.01), so nothing ever stopped upward motion from

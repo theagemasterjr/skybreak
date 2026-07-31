@@ -30,6 +30,9 @@ const DEFAULT_PALETTE = {
 // classic's sun direction, kept as a module export for any legacy references
 export const SUN_DIR = new THREE.Vector3(0.38, 0.30, -0.87).normalize();
 
+const _pp = { x: 0, z: 0 };
+const _pp2 = { x: 0, z: 0 };
+
 export class World {
   constructor(scene, mapDef) {
     this.scene = scene;
@@ -250,10 +253,40 @@ export class World {
     return island.topY - (island.depth || 15) * 0.85 * taper;
   }
 
+  // platform center at a given time (orbiting platforms circle a point)
+  platformPosAt(p, time, out = {}) {
+    if (p.orbit) {
+      const a = p.orbit.phase + time * p.orbit.angSpeed;
+      out.x = p.orbit.cx + Math.cos(a) * p.orbit.r;
+      out.z = p.orbit.cz + Math.sin(a) * p.orbit.r;
+    } else {
+      out.x = p.x; out.z = p.z;
+    }
+    return out;
+  }
+
   platformHeightAt(p, x, z, time) {
-    const dx = x - p.x, dz = z - p.z;
+    const pos = this.platformPosAt(p, time, _pp);
+    const dx = x - pos.x, dz = z - pos.z;
     if (Math.hypot(dx, dz) > p.R) return null;
     return this.platformY(p, time) + 0.35 * (1 - (dx * dx + dz * dz) / (p.R * p.R));
+  }
+
+  // If an orbiting platform sits under (x,z) at foot height, write its
+  // horizontal frame delta into out (so riders move with the ground).
+  platformCarry(x, z, feetY, time, dt, out) {
+    let best = null, bestY = -Infinity;
+    for (const p of this.platforms) {
+      if (!p.orbit) continue;
+      const y = this.platformHeightAt(p, x, z, time);
+      if (y === null || Math.abs(y - feetY) > 0.6) continue;
+      if (y > bestY) { bestY = y; best = p; }
+    }
+    if (!best) return false;
+    const a = this.platformPosAt(best, time, _pp);
+    const b = this.platformPosAt(best, time - dt, _pp2);
+    out.set(a.x - b.x, 0, a.z - b.z);
+    return true;
   }
 
   platformY(p, time) {
@@ -495,9 +528,15 @@ export class World {
       s.position.x = Math.cos(s.userData.angle) * s.userData.dist;
       s.position.z = Math.sin(s.userData.angle) * s.userData.dist;
     }
-    // platforms bob
+    // platforms bob (and orbit)
     for (const p of this.platforms) {
-      if (p.mesh) p.mesh.position.y = this.platformY(p, time);
+      if (!p.mesh) continue;
+      p.mesh.position.y = this.platformY(p, time);
+      if (p.orbit) {
+        const pos = this.platformPosAt(p, time, _pp);
+        p.mesh.position.x = pos.x;
+        p.mesh.position.z = pos.z;
+      }
     }
     // crystals pulse
     for (let i = 0; i < this.crystals.length; i++) {
