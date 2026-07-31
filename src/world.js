@@ -643,11 +643,12 @@ export class World {
       // crystalline slab: chunky faceted plate, painterly purple — and no
       // two alike: 5- to 8-sided, stretched, squashed, tapered differently
       const R = def.w / 2;
-      const sides = 5 + Math.floor(rng() * 4);
+      const sides = def.sides ?? 5 + Math.floor(rng() * 4);
+      const squash = def.squash ?? 0.3;
       const slabGeo = new THREE.CylinderGeometry(
         R * (0.82 + rng() * 0.18), R * (1.02 + rng() * 0.18), 0.7, sides
       ).toNonIndexed();
-      slabGeo.scale(1 + (rng() - 0.5) * 0.3, 1, 1 + (rng() - 0.5) * 0.3);
+      slabGeo.scale(1 + (rng() - 0.5) * squash, 1, 1 + (rng() - 0.5) * squash);
       paintGeometry(slabGeo, new THREE.Color(0x8a4aff), new THREE.Color(0x3a1878), rng, 0.22);
       const slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({
         vertexColors: true, emissive: 0x2c1066, emissiveIntensity: 0.6,
