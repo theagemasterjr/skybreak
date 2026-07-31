@@ -640,9 +640,14 @@ export class World {
       const center = new THREE.Vector3(def.x, def.y, def.z);
       this.gravPlates.push({ center, normal, t1, t2, w: def.w, d: def.d, fieldH: FIELD_H });
 
-      // crystalline hex slab: chunky faceted plate, painterly purple
+      // crystalline slab: chunky faceted plate, painterly purple — and no
+      // two alike: 5- to 8-sided, stretched, squashed, tapered differently
       const R = def.w / 2;
-      const slabGeo = new THREE.CylinderGeometry(R * 0.92, R * 1.1, 0.7, 6).toNonIndexed();
+      const sides = 5 + Math.floor(rng() * 4);
+      const slabGeo = new THREE.CylinderGeometry(
+        R * (0.82 + rng() * 0.18), R * (1.02 + rng() * 0.18), 0.7, sides
+      ).toNonIndexed();
+      slabGeo.scale(1 + (rng() - 0.5) * 0.3, 1, 1 + (rng() - 0.5) * 0.3);
       paintGeometry(slabGeo, new THREE.Color(0x8a4aff), new THREE.Color(0x3a1878), rng, 0.22);
       const slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({
         vertexColors: true, emissive: 0x2c1066, emissiveIntensity: 0.6,
@@ -656,7 +661,7 @@ export class World {
       this.root.add(slab);
       // glowing rune-ring on the pulling face
       const face = new THREE.Mesh(
-        new THREE.RingGeometry(R * 0.45, R * 0.82, 6),
+        new THREE.RingGeometry(R * 0.45, R * 0.82, sides),
         new THREE.MeshBasicMaterial({
           color: 0xb070ff, transparent: true, opacity: 0.4,
           blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,

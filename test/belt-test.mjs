@@ -92,6 +92,33 @@ if (Math.abs(mul - 1) > 1e-9) fail(`belt gravity mul ${mul}`);
   ok('plate underside is solid');
 }
 
+// (d2) tunneling: even at dash speeds, front hits land and back hits bonk
+{
+  const pl = belt.gravPlates[0];
+  // slam DOWN through the face at 60 u/s: one frame crosses the whole slab
+  const p = new Player(belt, camStub, inputStub);
+  p.position.copy(pl.center).addScaledVector(pl.normal, 3);
+  for (let i = 0; i < 60; i++) {
+    p.vel.copy(pl.normal).multiplyScalar(-60);
+    p.update(1 / 60, i / 60);
+    p.vel.set(0, 0, 0);
+    p.update(1 / 60, i / 60 + 0.008);
+  }
+  let h = p.position.clone().sub(pl.center).dot(pl.normal);
+  if (h < 0.2) fail(`fast front hit tunneled through: h=${h.toFixed(2)}`);
+
+  // blast UP at the back at 60 u/s: must never pop out on top
+  const q = new Player(belt, camStub, inputStub);
+  q.position.copy(pl.center).addScaledVector(pl.normal, -4);
+  for (let i = 0; i < 60; i++) {
+    q.vel.copy(pl.normal).multiplyScalar(60);
+    q.update(1 / 60, i / 60);
+  }
+  h = q.position.clone().sub(pl.center).dot(pl.normal);
+  if (h > -0.2) fail(`fast back hit tunneled through: h=${h.toFixed(2)}`);
+  ok('no tunneling at dash speeds (both sides)');
+}
+
 // (e) classic parity: vector gravity == old scalar gravity away from plates
 {
   const classic = new World(new THREE.Scene(), MAP_DEFS.classic);

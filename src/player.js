@@ -17,6 +17,7 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _grav = new THREE.Vector3(0, -1, 0);
 const _ppOut = { x: 0, z: 0 };
+const _prevPos = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _q1 = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
@@ -405,6 +406,7 @@ export class Player {
 
     // ---- integrate ----
     const prevY = this.position.y;
+    _prevPos.copy(this.position);   // for swept plate collision
     this.position.addScaledVector(this.vel, dt);
 
     // ---- ground collision (swept: use pre-move height so fast falls can't tunnel) ----
@@ -553,30 +555,43 @@ export class Player {
       }
     }
 
-    // ---- graviton plates: land on the pulling face; the back is a wall ----
+    // ---- graviton plates: land on the pulling face; the back is a wall.
+    // SWEPT against last frame's position — a dash or hard fall crosses the
+    // whole slab in one frame, so contact is decided by which side you came
+    // from, never by where you happen to sample mid-tunnel.
+    const land = (pl) => {
+      const into = this.vel.dot(pl.normal);
+      this.position.addScaledVector(pl.normal, 0.37 - _v1.copy(this.position).sub(pl.center).dot(pl.normal));
+      if (into < 0) {
+        this.vel.addScaledVector(pl.normal, -into);
+        if (into < -9 && !this.grounded && this.onLand) this.onLand(-into);
+      }
+      this.grounded = true;
+      this._onRock = true;
+      this.jumpsLeft = 2;
+      this.recoverAssistUsed = false;
+    };
     for (const pl of this.world.gravPlates || []) {
       _v1.copy(this.position).sub(pl.center);
       const h = _v1.dot(pl.normal);
       const lx = _v1.dot(pl.t1), lz = _v1.dot(pl.t2);
       if (Math.abs(lx) > pl.w / 2 + 0.2 || Math.abs(lz) > pl.d / 2 + 0.2) continue;
-      if (h > 0.42 || h < -0.8) continue;
-      if (h >= -0.12) {
-        // front side: snap feet onto the face (half-thickness 0.35) and land
-        this.position.addScaledVector(pl.normal, 0.37 - h);
-        const into = this.vel.dot(pl.normal);
-        if (into < 0) {
-          this.vel.addScaledVector(pl.normal, -into);
-          if (into < -9 && !this.grounded && this.onLand) this.onLand(-into);
-        }
-        this.grounded = true;
-        this._onRock = true;
-        this.jumpsLeft = 2;
-        this.recoverAssistUsed = false;
-      } else {
-        // back side: solid — you bonk off it, never phase through
+      const hPrev = _v2.copy(_prevPos).sub(pl.center).dot(pl.normal);
+      if (hPrev >= 0.3 && h <= 0.42) {
+        land(pl);                     // came from the front: land (even if we tunneled past)
+      } else if (hPrev <= -0.3 && h >= -0.5) {
+        // came from the back: solid bonk, never through
         this.position.addScaledVector(pl.normal, -0.45 - h);
         const into = this.vel.dot(pl.normal);
         if (into > 0) this.vel.addScaledVector(pl.normal, -into);
+      } else if (h > -0.45 && h < 0.37) {
+        // already embedded (lateral slip, spawn edge case): nearest side wins
+        if (h >= -0.05) land(pl);
+        else {
+          this.position.addScaledVector(pl.normal, -0.45 - h);
+          const into = this.vel.dot(pl.normal);
+          if (into > 0) this.vel.addScaledVector(pl.normal, -into);
+        }
       }
     }
 
