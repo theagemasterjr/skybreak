@@ -109,6 +109,27 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 #wave-label { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.22em; }
 #wave-remaining { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.14em; color: var(--ember); }
 
+/* ---- debug menu (type "skybreakiscool") ---- */
+#debug-menu {
+  position: absolute; top: 70px; right: 14px; width: 250px;
+  background: rgba(10, 12, 24, 0.92); border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px; padding: 10px 12px; pointer-events: auto; z-index: 60;
+  display: none; font-size: 0.72rem; letter-spacing: 0.06em; color: #cfd8e8;
+}
+#debug-menu.active { display: block; }
+#debug-menu .dbg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+#debug-menu .dbg-head b { letter-spacing: 0.2em; color: #ffd76a; }
+#debug-menu .dbg-section { margin: 8px 0 4px; color: #8a94ac; font-size: 0.62rem; letter-spacing: 0.14em; }
+#debug-menu .dbg-row, #debug-menu .dbg-maps { display: flex; flex-wrap: wrap; gap: 4px; }
+#debug-menu button {
+  background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px; padding: 4px 8px; font-size: 0.66rem; letter-spacing: 0.08em;
+  color: inherit; cursor: pointer;
+}
+#debug-menu button:hover { background: rgba(255, 255, 255, 0.16); }
+#debug-menu button.on { background: rgba(255, 215, 106, 0.25); border-color: #ffd76a; }
+#debug-menu .dbg-note { color: #8a94ac; font-size: 0.6rem; margin-top: 6px; min-height: 0.8em; }
+
 #ot-timer {
   position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
   font-size: 0.95rem; font-weight: 700; letter-spacing: 0.18em;

@@ -16,6 +16,7 @@ import { Duel } from './duel.js';
 import { BotDuel } from './botDuel.js';
 import { Ffa } from './ffa.js';
 import { Tutorial } from './tutorial.js';
+import { DebugMenu } from './debug.js';
 
 // ---------------------------------------------------------------------------
 // Game: the orchestrator. Owns every subsystem, the game state machine,
@@ -98,6 +99,7 @@ export class Game {
     this.menus = new Menus(this, uiRoot);
     this.waves = new Waves(this);
     this.tutorial = new Tutorial(this, uiRoot);
+    this.debug = new DebugMenu(this, uiRoot);   // type "skybreakiscool" to open
 
     // online modes: successful casts replicate to rivals as an attack anim
     this.onPlayerCast = (slot, power) => {
