@@ -115,9 +115,22 @@ export class World {
       : null;
     this.gravityFlipped = false;
     this.skyKillY = null;
+    this.restoreMood();
     this.overtime = this.mapDef.makeOvertime
       ? this.mapDef.makeOvertime(this, this._game)
       : null;
+  }
+
+  // undo any overtime sky-darkening (fresh round, fresh sky)
+  restoreMood() {
+    if (!this.skyMat) return;
+    this.skyMat.uniforms.zenith.value.copy(this.skyBase.zenith);
+    this.skyMat.uniforms.mid.value.copy(this.skyBase.mid);
+    this.skyMat.uniforms.horizon.value.copy(this.skyBase.horizon);
+    this.skyMat.uniforms.sunColor.value.copy(this.skyBase.sunColor);
+    if (this.scene.fog) this.scene.fog.color.copy(this.fogBase);
+    this.sun.intensity = this.sunBaseIntensity;
+    if (this.hemiLight) this.hemiLight.intensity = this.hemiBase;
   }
 
   // ---- overtime arena mutation ----
@@ -160,6 +173,8 @@ export class World {
     const env = this.mapDef.env;
     const hemi = new THREE.HemisphereLight(env.hemi[0], env.hemi[1], env.hemi[2]);
     this.root.add(hemi);
+    this.hemiLight = hemi;
+    this.hemiBase = env.hemi[2];
 
     const sun = new THREE.DirectionalLight(env.sunColor, env.sunIntensity);
     sun.position.copy(this.sunDir).multiplyScalar(180);
@@ -265,6 +280,16 @@ export class World {
     const sky = new THREE.Mesh(geo, mat);
     sky.frustumCulled = false;
     this.root.add(sky);
+    // overtime mood: keep handles + pristine copies so events can darken the
+    // sky and every new round can restore it exactly
+    this.skyMat = mat;
+    this.skyBase = {
+      zenith: mat.uniforms.zenith.value.clone(),
+      mid: mat.uniforms.mid.value.clone(),
+      horizon: mat.uniforms.horizon.value.clone(),
+      sunColor: mat.uniforms.sunColor.value.clone(),
+    };
+    this.fogBase = new THREE.Color(env.fog.color);
 
     // layered sun glow sprites
     const glowTex = makeGlowTexture();

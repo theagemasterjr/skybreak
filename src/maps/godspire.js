@@ -56,19 +56,22 @@ class CollapseOvertime extends Overtime {
   tick(dt) {
     const w = this.world, g = this.game;
 
-    // schedule the next collapse
+    // schedule the next collapse — TWO ledges at a time, on a quick clock
+    // (the whole spire should come down in ~25s, not a minute)
     if (this.t >= this.nextAt && (this.queue.length || this.islandQueue.length)) {
-      this.nextAt = this.t + Math.max(1.6, 3 - this.t * 0.02);
-      if (this.queue.length) {
-        const p = this.queue.shift();
-        this.rumbling.push({ p, t: 1.1, home: p.mesh ? p.mesh.position.clone() : null });
-        this.log.push([Math.round(w.hazardClock), 'ledge']);
-      } else {
-        const island = this.islandQueue.shift();
-        this.rumbling.push({ island, t: 1.1 });
-        this.log.push([Math.round(w.hazardClock), 'island']);
+      this.nextAt = this.t + Math.max(1.0, 2.0 - this.t * 0.03);
+      for (let n = 0; n < 2; n++) {
+        if (this.queue.length) {
+          const p = this.queue.shift();
+          this.rumbling.push({ p, t: 0.9, home: p.mesh ? p.mesh.position.clone() : null });
+          this.log.push([Math.round(w.hazardClock), 'ledge']);
+        } else if (this.islandQueue.length) {
+          const island = this.islandQueue.shift();
+          this.rumbling.push({ island, t: 0.9 });
+          this.log.push([Math.round(w.hazardClock), 'island']);
+        }
       }
-      if (!this.queue.length && !this.islandQueue.length) this.bombardAt = this.t + 4;
+      if (!this.queue.length && !this.islandQueue.length) this.bombardAt = this.t + 3;
       g.audio?.play('windup');
     }
 

@@ -1,16 +1,16 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { Overtime, StrikePool } from '../overtime.js';
 
 // ---------------------------------------------------------------------------
 // Shattered Belt: an asteroid field drifting in deep-space dusk. Normal
-// gravity in the open — but GRAVITON terrain bends it: glowing ringed
+// gravity in the open â€” but GRAVITON terrain bends it: glowing ringed
 // asteroids you can run all the way around, and purple plates whose fields
 // pull one way onto their face. Once a field grips you, only a dash frees
 // you; gravity snaps back to plain down the moment you leave.
 //
-// OVERTIME — CANOPY'S CALL: the belt tears itself apart. Every plate,
+// OVERTIME â€” CANOPY'S CALL: the belt tears itself apart. Every plate,
 // platform and island rumbles then launches skyward one pair at a time,
-// until only the colossal face-down Canopy remains — then the sky itself
+// until only the colossal face-down Canopy remains â€” then the sky itself
 // inverts. Gravity flips, everyone falls UP, and only the Canopy's own
 // downward-pulling field catches you. From then on the Canopy's underside
 // crackles with static discharge, faster and faster.
@@ -39,7 +39,7 @@ class CanopyOvertime extends Overtime {
     this.totalQueue = entries.length;
 
     // static-position visuals (plate slabs, island groups) need an explicit
-    // home cached up front — platform meshes get a fresh "home" every frame
+    // home cached up front â€” platform meshes get a fresh "home" every frame
     // from world.update's own bob/orbit formula, so they need none.
     this._homes = new Map();
     for (const e of entries) {
@@ -49,7 +49,7 @@ class CanopyOvertime extends Overtime {
 
     this.rumbling = [];    // {entry, t}
     this.launching = [];   // {entry, vy, spinX, spinZ}
-    this.nextPullAt = this.t + 4.5;
+    this.nextPullAt = this.t + 2.4;
 
     this.pool = new StrikePool(w, this.game);
     this.flipped = false;
@@ -138,11 +138,11 @@ class CanopyOvertime extends Overtime {
     const w = this.world, g = this.game;
 
     if (!this.flipped) {
-      // ACT 1 — ASCENSION: pull two entries every 4.5s
+      // ACT 1 â€” ASCENSION: pull two entries every 4.5s
       if (this.queue.length && this.t >= this.nextPullAt) {
-        const n = Math.min(2, this.queue.length);
+        const n = Math.min(3, this.queue.length);
         for (let i = 0; i < n; i++) this.rumbling.push({ entry: this.queue.shift(), t: 0 });
-        this.nextPullAt = this.t + 4.5;
+        this.nextPullAt = this.t + 2.4;
         this.log.push([Math.round(w.hazardClock), 'launch']);
       }
       // rumble, then launch
@@ -150,7 +150,7 @@ class CanopyOvertime extends Overtime {
         const r = this.rumbling[i];
         r.t += dt;
         this._rumbleFx(r.entry, r.t);
-        if (r.t >= 1.4) { this._launch(r.entry); this.rumbling.splice(i, 1); }
+        if (r.t >= 1.0) { this._launch(r.entry); this.rumbling.splice(i, 1); }
       }
       // the Canopy shakes harder as the queue empties
       const progress = 1 - this.queue.length / this.totalQueue;
@@ -173,12 +173,12 @@ class CanopyOvertime extends Overtime {
       if (mesh.position.y > 150) { mesh.visible = false; this.launching.splice(i, 1); }
     }
 
-    // ACT 2 — THE FLIP: once, after the queue is drained and airborne
+    // ACT 2 â€” THE FLIP: once, after the queue is drained and airborne
     if (!this.flipped && this.queue.length === 0 && this.rumbling.length === 0 && this.launching.length === 0) {
       this._flip();
     }
 
-    // ACT 3 — STATIC DISCHARGE: strikes on the Canopy's face, ramping up
+    // ACT 3 â€” STATIC DISCHARGE: strikes on the Canopy's face, ramping up
     if (this.flipped) {
       if (this.nextStrikeAt === null) this.nextStrikeAt = this.t;
       if (this.t >= this.nextStrikeAt) {
@@ -199,7 +199,7 @@ class CanopyOvertime extends Overtime {
 export const BELT = {
   id: 'belt',
   name: 'SHATTERED BELT',
-  blurb: 'graviton rocks · gravity plates',
+  blurb: 'graviton rocks Â· gravity plates',
 
   env: {
     gravityMul: 1,
@@ -248,7 +248,7 @@ export const BELT = {
   // decorative boulders on the islands are solid here (they read as terrain)
   solidRocks: true,
 
-  // graviton plates — crystalline purple slabs with ONE-directional gravity:
+  // graviton plates â€” crystalline purple slabs with ONE-directional gravity:
   // the field over each face pulls straight onto it. Spread across the whole
   // belt in varying sizes and wild angles: ramps, a sideways wall you stand
   // on like a floor, and a near-upside-down ceiling you walk under flipped.
@@ -262,8 +262,8 @@ export const BELT = {
     { x: -42, y: 26, z: 44, w: 9, d: 9, yaw: 4.2, tilt: 0.9 },     // steep ramp
     { x: 24, y: 14, z: 6, w: 6, d: 6, yaw: 2.8, tilt: 0.2 },       // little hop-stone
     { x: 2, y: 28, z: -18, w: 13, d: 13, yaw: 1.7, tilt: -0.5 },   // the big tilted crown
-    // THE CANOPY: a colossal jagged shard crowning the whole map — bigger
-    // than the main island — hanging high, face-down. Fly up under it and it
+    // THE CANOPY: a colossal jagged shard crowning the whole map â€” bigger
+    // than the main island â€” hanging high, face-down. Fly up under it and it
     // catches you; you walk its underside with the entire belt overhead.
     { x: 4, y: 62, z: 4, w: 32, d: 32, yaw: 0.9, tilt: Math.PI - 0.1, sides: 7, squash: 0.55, canopy: true },
   ],

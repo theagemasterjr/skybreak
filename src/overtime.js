@@ -10,6 +10,7 @@ import * as THREE from 'three';
 
 export const OT_AT = 124;   // ~3.6s pre-round countdown + 2:00 of fighting
 const _v = new THREE.Vector3();
+const _moodTint = new THREE.Color(0x66201a);   // the overtime crimson
 
 export class Overtime {
   constructor(world, game) {
@@ -48,7 +49,23 @@ export class Overtime {
       }
       return;
     }
+    // the sky turns: darker, redder, moodier — every map, unmistakable
+    this._applyMood(Math.min(1, this.t / 3));
     this.tick(dt);
+  }
+
+  _applyMood(k) {
+    const w = this.world;
+    if (!w.skyMat || k === this._moodK) return;
+    this._moodK = k;
+    const dim = 1 - 0.5 * k;
+    w.skyMat.uniforms.zenith.value.copy(w.skyBase.zenith).multiplyScalar(dim).lerp(_moodTint, 0.22 * k);
+    w.skyMat.uniforms.mid.value.copy(w.skyBase.mid).multiplyScalar(dim).lerp(_moodTint, 0.3 * k);
+    w.skyMat.uniforms.horizon.value.copy(w.skyBase.horizon).multiplyScalar(1 - 0.35 * k).lerp(_moodTint, 0.35 * k);
+    w.skyMat.uniforms.sunColor.value.copy(w.skyBase.sunColor).lerp(_moodTint, 0.3 * k);
+    if (w.scene.fog) w.scene.fog.color.copy(w.fogBase).multiplyScalar(1 - 0.35 * k).lerp(_moodTint, 0.3 * k);
+    w.sun.intensity = w.sunBaseIntensity * (1 - 0.4 * k);
+    if (w.hemiLight) w.hemiLight.intensity = w.hemiBase * (1 - 0.3 * k);
   }
 
   // subclasses
