@@ -177,87 +177,98 @@ class EruptionOvertime extends Overtime {
     return out;
   }
 
-  _launchBomb(target) {
+  // magma missile: launches skyward from the Heart, then HUNTS its victim —
+  // slow enough to dodge with a dash, and it blows itself up when the fuse runs out
+  _launchBomb(victim) {
     const w = this.world, g = this.game;
     const from = new THREE.Vector3(0, 30, 0);
-    const T = 1.6;
-    const vel = target.clone().sub(from).multiplyScalar(1 / T);
-    vel.y += 0.5 * 22 * T;
+    const out = victim.position.clone().sub(from).setY(0);
+    if (out.lengthSq() < 0.01) out.set(1, 0, 0);
+    const vel = out.normalize().multiplyScalar(8);
+    vel.y = 20;   // pop up first, then curve in
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1.1, 8, 6),
       new THREE.MeshBasicMaterial({ color: 0xff7a30, fog: false })
     );
     mesh.position.copy(from);
     w.hazardFx.add(mesh);
-    this.bombs.push({ pos: from.clone(), vel, mesh });
+    this.bombs.push({ pos: from.clone(), vel, mesh, victim, fuse: 3.8 });
     g.audio?.play('windup');
+  }
+
+  _detonate(b) {
+    const g = this.game;
+    const at = b.pos.clone();
+    g.effects.impactBurst(at.clone(), { color: 0xff8a40, size: 4 });
+    g.effects.ring(at.clone(), { color: 0xff8a30, endRadius: 6, life: 0.4, thickness: 0.4 });
+    g.audio?.play('explosion');
+    for (const v of this._victims()) {
+      if (!v || !v.alive) continue;
+      if (v.position.distanceTo(at) > 5.5) continue;
+      const kb = v.position.clone().sub(at).setY(0);
+      if (kb.lengthSq() < 0.01) kb.set(1, 0, 0);
+      kb.normalize().multiplyScalar(14).setY(10);
+      if (v === g.player) {
+        v.takeDamage(20, at, {});
+        v.applyKnockback(kb);
+        g.hud?.flash('rgba(255, 120, 40, 0.22)', 0.3);
+      } else {
+        v.takeDamage(20, { knockback: kb, source: 'hazard' });
+      }
+    }
+    const ground = this.world.groundHeightBelow(at.x, at.z, at.y + 1, 0, 3);
+    if (ground !== null && Math.abs(at.y - ground) < 2.5) {
+      this.patches.push({ pos: at, r: 3.4, until: this.t + 6 });
+    }
+    this.world.hazardFx.remove(b.mesh);
+    b.mesh.geometry.dispose();
+    b.mesh.material.dispose();
   }
 
   tick(dt) {
     const w = this.world, g = this.game;
-    // the sea rises, ever faster
-    this.lavaY += (1.1 + this.t * 0.02) * dt;
+    // the sea rises FAST, and ever faster — this event does not dawdle
+    this.lavaY += (2.3 + this.t * 0.035) * dt;
     this.sea.position.y = this.lavaY;
     this.seaCore.position.y = this.lavaY + 0.4;
 
-    // seeded bomb schedule: target a random island top with seeded scatter
+    // seeded launch schedule; every missile hunts a (local) fighter
     if (this.t >= this.nextBombAt) {
-      this.nextBombAt = this.t + Math.max(1.4, 3.2 - this.t * 0.03);
-      const isl = w.islands.length
-        ? w.islands[Math.floor(w.hazardRng() * w.islands.length)]
-        : null;
-      if (isl) {
-        const target = new THREE.Vector3(
-          isl.x + (w.hazardRng() - 0.5) * 16,
-          isl.topY + 0.5,
-          isl.z + (w.hazardRng() - 0.5) * 16
-        );
-        this._launchBomb(target);
+      this.nextBombAt = this.t + Math.max(1.2, 2.8 - this.t * 0.03);
+      const victims = this._victims().filter((v) => v?.alive);
+      if (victims.length) {
+        this._vIdx = ((this._vIdx ?? -1) + 1) % victims.length;
+        this._launchBomb(victims[this._vIdx]);
         this.log.push([Math.round(w.hazardClock), 'bomb']);
-      }
-      // every other volley also hunts the (local) fighters
-      this._huntNext = !this._huntNext;
-      if (this._huntNext) {
-        for (const v of this._victims()) {
-          if (v?.alive) this._launchBomb(v.position.clone());
-        }
       }
     }
 
-    // bombs fly, land, blast, leave burning patches
+    // magma missiles: curve toward their victim, detonate on contact,
+    // ground, lava — or their own fuse
     for (let i = this.bombs.length - 1; i >= 0; i--) {
       const b = this.bombs[i];
-      b.vel.y -= 22 * dt;
+      b.fuse -= dt;
+      // homing steer (limited turn so a dash sidesteps it)
+      const tgt = b.victim && b.victim.alive ? b.victim : null;
+      if (tgt) {
+        _v1.copy(tgt.position); _v1.y += 1;
+        _v2.copy(_v1).sub(b.pos).normalize().multiplyScalar(21);
+        b.vel.lerp(_v2, Math.min(1, 1.4 * dt));
+      } else {
+        b.vel.y -= 10 * dt;
+      }
       b.pos.addScaledVector(b.vel, dt);
       b.mesh.position.copy(b.pos);
-      if (Math.random() < dt * 30) {
-        g.effects.glow(b.pos.clone(), { color: 0xffa050, size: 0.9, life: 0.2 });
+      if (Math.random() < dt * 40) {
+        g.effects.glow(b.pos.clone(), { color: 0xffa050, size: 1.1, life: 0.25 });
       }
       const ground = w.groundHeightBelow(b.pos.x, b.pos.z, b.pos.y + 1, 0, 2);
-      const landed = (ground !== null && b.pos.y <= ground + 0.5) || b.pos.y < this.lavaY || b.pos.y < -100;
-      if (!landed) continue;
-      const at = b.pos.clone();
-      g.effects.impactBurst(at.clone(), { color: 0xff8a40, size: 4 });
-      g.effects.ring(at.clone(), { color: 0xff8a30, endRadius: 6, life: 0.4, thickness: 0.4 });
-      g.audio?.play('explosion');
-      for (const v of this._victims()) {
-        if (!v || !v.alive) continue;
-        if (v.position.distanceTo(at) > 5.5) continue;
-        const kb = v.position.clone().sub(at).setY(0);
-        if (kb.lengthSq() < 0.01) kb.set(1, 0, 0);
-        kb.normalize().multiplyScalar(14).setY(10);
-        if (v === g.player) {
-          v.takeDamage(20, at, {});
-          v.applyKnockback(kb);
-          g.hud?.flash('rgba(255, 120, 40, 0.22)', 0.3);
-        } else {
-          v.takeDamage(20, { knockback: kb, source: 'hazard' });
-        }
-      }
-      if (ground !== null) this.patches.push({ pos: at, r: 3.4, until: this.t + 6 });
-      w.hazardFx.remove(b.mesh);
-      b.mesh.geometry.dispose();
-      b.mesh.material.dispose();
+      const nearVictim = tgt && b.pos.distanceTo(_v1.copy(tgt.position).setY(tgt.position.y + 1)) < 1.6;
+      const boom = b.fuse <= 0 || nearVictim
+        || (ground !== null && b.pos.y <= ground + 0.5)
+        || b.pos.y < this.lavaY || b.pos.y < -100;
+      if (!boom) continue;
+      this._detonate(b);
       this.bombs.splice(i, 1);
     }
 
