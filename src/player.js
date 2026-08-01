@@ -518,20 +518,37 @@ export class Player {
       }
     }
 
-    // ---- column collision (horizontal push-out) ----
+    // ---- column collision ----
+    // Resolve through the NEAREST surface. The old sideways-only push-out
+    // violently ejected anyone whose feet dipped just below a column's top
+    // while landing on something up there (the Godspire crown: the tower
+    // drum reaches the crown's underside, so every landing "teleported you
+    // to the side"). If the top is closer, land ON the column instead.
     for (const c of this.world.columns) {
       if (this.position.y > c.yTop || this.position.y + EYE_HEIGHT < c.yBottom) continue;
       const dx = this.position.x - c.x, dz = this.position.z - c.z;
       const d = Math.hypot(dx, dz);
       const minD = c.r + RADIUS;
       if (d < minD && d > 0.0001) {
-        const push = (minD - d) / d;
-        this.position.x += dx * push;
-        this.position.z += dz * push;
-        // cancel velocity into the column
-        const nx = dx / d, nz = dz / d;
-        const into = this.vel.x * nx + this.vel.z * nz;
-        if (into < 0) { this.vel.x -= into * nx; this.vel.z -= into * nz; }
+        const latPen = minD - d;
+        const topPen = c.yTop - this.position.y;
+        if (topPen < Math.min(latPen, 1.4)) {
+          this.position.y = c.yTop;
+          if (this.vel.y < 0.01) {
+            this.vel.y = 0;
+            this.grounded = true;
+            this.jumpsLeft = 2;
+            this.recoverAssistUsed = false;
+          }
+        } else {
+          const push = latPen / d;
+          this.position.x += dx * push;
+          this.position.z += dz * push;
+          // cancel velocity into the column
+          const nx = dx / d, nz = dz / d;
+          const into = this.vel.x * nx + this.vel.z * nz;
+          if (into < 0) { this.vel.x -= into * nx; this.vel.z -= into * nz; }
+        }
       }
     }
 

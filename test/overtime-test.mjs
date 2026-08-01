@@ -73,8 +73,10 @@ const CHECKS = {
     else ok('ember: the sea found the player');
   },
   godspire(world, game) {
-    if (world.platforms.length !== 0) fail(`godspire: ${world.platforms.length} ledges survived`);
-    else ok('godspire: every ledge shattered');
+    // the crown (baseY 70.5) survives by design; everything else shatters
+    if (world.platforms.length !== 1 || world.platforms[0].baseY < 70) {
+      fail(`godspire: expected only the crown to survive, got ${world.platforms.length} ledges`);
+    } else ok('godspire: every ledge but the crown shattered');
     if (world.islands.length !== 1) fail(`godspire: expected only the base island, got ${world.islands.length}`);
     else ok('godspire: satellites crumbled');
   },

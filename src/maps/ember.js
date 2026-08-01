@@ -285,22 +285,30 @@ class EruptionOvertime extends Overtime {
     for (const v of this._victims()) {
       if (!v || !v.alive) continue;
       const isPlayer = v === this.game.player;
-      // lava contact: heavy burn + an upward shove you can ride out
+      // lava contact: PUNISHING. Every dip costs a real chunk up front (the
+      // rescue shove used to fling you out before the burn could add up),
+      // and soaking melts you fast
       if (v.position.y < this.lavaY + 0.4) {
         if (isPlayer) {
-          v.health -= 22 * dt;
+          v.health -= 35 * dt;
           v.lastDamagedAt = g.simTime;
-          if (v.health <= 0) { v.health = 0; v.alive = false; v.onDeath?.(); }
           const next = this.burnTick.get(v) ?? 0;
           if (this.t >= next) {
             this.burnTick.set(v, this.t + 0.7);
+            v.health -= 16;                       // the dip itself HURTS
             v.vel.y = Math.max(v.vel.y, 18);
-            g.hud?.flash('rgba(255, 90, 30, 0.3)', 0.3);
-            v.shake?.(0.4);
+            g.hud?.flash('rgba(255, 90, 30, 0.35)', 0.35);
+            v.shake?.(0.5);
             g.audio?.play('playerHurt');
           }
+          if (v.health <= 0) { v.health = 0; v.alive = false; v.onDeath?.(); }
         } else {
-          v.takeDamage(22 * dt, { source: 'hazard' });
+          v.takeDamage(35 * dt, { source: 'hazard' });
+          const next = this.burnTick.get(v) ?? 0;
+          if (this.t >= next) {
+            this.burnTick.set(v, this.t + 0.7);
+            v.takeDamage(16, { knockback: _v2.set(0, 14, 0).clone(), source: 'hazard' });
+          }
         }
       } else {
         // burning patches: standing in the fire

@@ -29,12 +29,16 @@ class CanopyOvertime extends Overtime {
     // 7 islands, all interleaved by one seeded shuffle over the combined list
     const plates = w.gravPlates.filter((p) => !p.canopy).map((ref) => ({ type: 'plate', ref }));
     const platforms = w.platforms.map((ref) => ({ type: 'platform', ref }));
-    const islands = w.islands.map((ref) => ({ type: 'island', ref }));
+    // the main island (the biggest) is the grand finale — everything else
+    // shuffles, it always goes up LAST, alone
+    const mainIsland = w.islands.reduce((a, b) => (b.R > a.R ? b : a));
+    const islands = w.islands.filter((i) => i !== mainIsland).map((ref) => ({ type: 'island', ref }));
     const entries = [...plates, ...platforms, ...islands];
     for (let i = entries.length - 1; i > 0; i--) {
       const j = Math.floor(w.hazardRng() * (i + 1));
       [entries[i], entries[j]] = [entries[j], entries[i]];
     }
+    entries.push({ type: 'island', ref: mainIsland });
     this.queue = entries;
     this.totalQueue = entries.length;
 
@@ -52,6 +56,7 @@ class CanopyOvertime extends Overtime {
     this.nextPullAt = this.t + 2.4;
 
     this.pool = new StrikePool(w, this.game);
+    this.strikes = this.pool;   // the bot's hazard sense looks for `.strikes`
     this.flipped = false;
     this.flipT = null;
     this.nextStrikeAt = null;
@@ -117,6 +122,10 @@ class CanopyOvertime extends Overtime {
     this.canopy.slab.position.copy(this.canopyHome);   // stop the shake
     g.hud?.announce('THE SKY INVERTS', 'sub');
     g.hud?.flash('rgba(160, 120, 255, 0.3)', 0.7);
+    // flipped gravity points along the Canopy's own field direction, so
+    // "up" never changes when crossing the plate's boundary (a mismatch
+    // made the camera frame snap when stepping off the Canopy)
+    w.gravityFlipDir.copy(this.canopy.normal).negate().normalize();
     w.gravityFlipped = true;
     w.skyKillY = 150;
     g.player.vel.y += 6;
@@ -140,7 +149,8 @@ class CanopyOvertime extends Overtime {
     if (!this.flipped) {
       // ACT 1 â€” ASCENSION: pull two entries every 4.5s
       if (this.queue.length && this.t >= this.nextPullAt) {
-        const n = Math.min(3, this.queue.length);
+        // never group the finale: the main island always rises alone
+        const n = Math.min(3, Math.max(1, this.queue.length - 1));
         for (let i = 0; i < n; i++) this.rumbling.push({ entry: this.queue.shift(), t: 0 });
         this.nextPullAt = this.t + 2.4;
         this.log.push([Math.round(w.hazardClock), 'launch']);

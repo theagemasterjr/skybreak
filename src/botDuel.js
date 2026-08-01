@@ -179,7 +179,7 @@ export class BotDuel {
     this._overT = 2.6;
     this.score.opp++;
     this.game.hud.announce('ROUND LOST', 'sub');
-    this.game.audio?.play('playerDeath');
+    // (death audio comes from Game._onPlayerDeath; playing it here too doubled it)
     this.game.hud.setDuelInfo(this.round, this.score.me, this.score.opp, this.botName);
     this.brain?.onRoundWon();
   }

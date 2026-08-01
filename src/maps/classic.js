@@ -16,56 +16,188 @@ const _v1 = new THREE.Vector3();
 class SkyfallOvertime extends Overtime {
   begin() {
     const w = this.world;
-    // the big one (R 30) is spared; the satellites all break loose the
-    // moment overtime hits — a staggered half-second cascade so the whole
-    // sky visibly comes apart at once (seeded order)
+    // the big one (R 30) is spared; satellites die in seeded-shuffle order
     this.main = w.islands.reduce((a, b) => (b.R > a.R ? b : a));
-    const doomed = w.islands.filter((i) => i !== this.main);
-    for (let i = doomed.length - 1; i > 0; i--) {
+    this.queue = w.islands.filter((i) => i !== this.main);
+    for (let i = this.queue.length - 1; i > 0; i--) {
       const j = Math.floor(w.hazardRng() * (i + 1));
-      [doomed[i], doomed[j]] = [doomed[j], doomed[i]];
+      [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
     }
-    this.drops = doomed.map((island, i) => ({ island, at: this.t + 0.8 + i * 0.5 }));
+    this.marks = [];      // {island, t, ring, pillar} — doom telegraphs
+    this.meteors = [];    // {mesh, shell, from, to, t, dur, island}
     this.sinking = [];    // {island, t, spin}
     this.strikes = new StrikePool(w, this.game);
+    this.nextMeteorAt = this.t + 2.5;
     this.nextStrikeAt = null;
-    this.phase2At = this.t + 0.8 + doomed.length * 0.5 + 4;
+    this.phase2At = this.queue.length ? null : this.t + 3;
+
+    // the little stepping-stone platforms can't take the strain: they all
+    // shake loose immediately, a rapid-fire cascade right at the bell
+    // (seeded order; the dais discs on the main island have no mesh and stay)
+    const stones = w.platforms.filter((p) => p.mesh);
+    for (let i = stones.length - 1; i > 0; i--) {
+      const j = Math.floor(w.hazardRng() * (i + 1));
+      [stones[i], stones[j]] = [stones[j], stones[i]];
+    }
+    this.stoneDrops = stones.map((p, i) => ({ p, at: this.t + 0.6 + i * 0.3 }));
+    this.fallingStones = [];   // {mesh, vy, spin}
+  }
+
+  // step 1 of an island's doom: a pulsing red mark + light pillar, so
+  // everyone sees WHERE before anything falls
+  _markIsland(island) {
+    const w = this.world;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(island.R * 0.55, island.R * 0.8, 36),
+      new THREE.MeshBasicMaterial({
+        color: 0xff3b30, transparent: true, opacity: 0.55,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(island.x, island.topY + island.domeH + 0.6, island.z);
+    w.hazardFx.add(ring);
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(island.R * 0.35, island.R * 0.55, 120, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xff5a40, transparent: true, opacity: 0.1,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      })
+    );
+    pillar.position.set(island.x, island.topY + 60, island.z);
+    w.hazardFx.add(pillar);
+    this.marks.push({ island, t: 1.6, ring, pillar });
+    this.game.audio?.play('windup');
+  }
+
+  // step 2: the fireball — big, slow enough to watch, trailing fire
+  _launchMeteor(island) {
+    const w = this.world;
+    const group = new THREE.Group();
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(2.6, 12, 10),
+      new THREE.MeshBasicMaterial({ color: 0xffe0b0, fog: false })
+    );
+    group.add(core);
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(4.2, 12, 10),
+      new THREE.MeshBasicMaterial({
+        color: 0xff6a20, transparent: true, opacity: 0.45,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })
+    );
+    group.add(shell);
+    // NO PointLight here: adding/removing dynamic lights mid-fight forces
+    // three.js to recompile every material in the scene — a hard freeze per
+    // meteor. The additive shell + trail glows carry the fire look instead.
+    const to = new THREE.Vector3(island.x, island.topY + 1, island.z);
+    const from = to.clone().add(_v1.set(
+      (w.hazardRng() - 0.5) * 80, 140, (w.hazardRng() - 0.5) * 80
+    ));
+    group.position.copy(from);
+    w.hazardFx.add(group);
+    this.meteors.push({ mesh: group, shell, from, to, t: 0, dur: 1.8, island });
+    this.game.audio?.play('explosion');
   }
 
   tick(dt) {
     const w = this.world, g = this.game;
 
-    // the cascade: each satellite cracks loose on schedule and falls
-    for (let i = this.drops.length - 1; i >= 0; i--) {
-      const d = this.drops[i];
+    // stepping stones shake loose and drop away
+    for (let i = this.stoneDrops.length - 1; i >= 0; i--) {
+      const d = this.stoneDrops[i];
       if (this.t < d.at) continue;
-      this.drops.splice(i, 1);
-      const c = _v1.set(d.island.x, d.island.topY + 1, d.island.z).clone();
-      g.effects.impactBurst(c.clone(), { color: 0xff8a40, size: 6 });
-      g.effects.ring(c.clone(), { color: 0xff7a30, endRadius: d.island.R + 5, life: 0.6, thickness: 0.7 });
-      g.effects.burst(c.clone(), { count: 30, color: 0xbfa78a, color2: 0x8a7a63, speed: 10, size: 0.45, life: 0.7, gravity: 8, additive: false });
-      g.player.shake(Math.max(0.25, 1 - g.player.position.distanceTo(c) / 100));
-      g.audio?.play('explosion');
-      w.removeIsland(d.island);
-      this.sinking.push({ island: d.island, t: 0, spin: (w.hazardRng() - 0.5) * 0.8 });
-      this.log.push([Math.round(w.hazardClock), 'fall']);
+      this.stoneDrops.splice(i, 1);
+      const pos = d.p.mesh.position.clone();
+      g.effects.burst(pos.clone(), { count: 10, color: 0xbfa78a, color2: 0x8a7a63, speed: 5, size: 0.3, life: 0.5, gravity: 6, additive: false });
+      g.audio?.play('land');
+      w.removePlatform(d.p);
+      this.fallingStones.push({ mesh: d.p.mesh, vy: 1, spin: (w.hazardRng() - 0.5) * 1.6 });
+      this.log.push([Math.round(w.hazardClock), 'stone']);
+    }
+    for (let i = this.fallingStones.length - 1; i >= 0; i--) {
+      const f = this.fallingStones[i];
+      f.vy += 24 * dt;
+      f.mesh.position.y -= f.vy * dt;
+      f.mesh.rotation.x += f.spin * dt;
+      f.mesh.rotation.z += f.spin * 0.7 * dt;
+      if (f.mesh.position.y < -120) { f.mesh.visible = false; this.fallingStones.splice(i, 1); }
     }
 
-    // loosed islands sink into the void
+    // schedule the next satellite's doom (mark first, meteor follows)
+    if (this.queue.length && this.t >= this.nextMeteorAt) {
+      const island = this.queue.shift();
+      this.nextMeteorAt = this.t + 5;
+      this._markIsland(island);
+      this.log.push([Math.round(w.hazardClock), 'meteor']);
+      if (!this.queue.length) this.phase2At = this.t + 8;
+    }
+
+    // doom marks pulse, then summon the meteor
+    for (let i = this.marks.length - 1; i >= 0; i--) {
+      const mk = this.marks[i];
+      mk.t -= dt;
+      mk.ring.material.opacity = 0.3 + 0.35 * Math.abs(Math.sin(mk.t * 10));
+      mk.ring.rotation.z += dt * 1.5;
+      mk.pillar.material.opacity = 0.06 + 0.06 * Math.abs(Math.sin(mk.t * 10));
+      if (mk.t <= 0) {
+        w.hazardFx.remove(mk.ring); w.hazardFx.remove(mk.pillar);
+        mk.ring.geometry.dispose(); mk.ring.material.dispose();
+        mk.pillar.geometry.dispose(); mk.pillar.material.dispose();
+        this.marks.splice(i, 1);
+        this._launchMeteor(mk.island);
+      }
+    }
+
+    // meteors fall — big, burning, impossible to miss
+    for (let i = this.meteors.length - 1; i >= 0; i--) {
+      const m = this.meteors[i];
+      m.t += dt;
+      const k = Math.min(1, m.t / m.dur);
+      m.mesh.position.lerpVectors(m.from, m.to, k * k);   // accelerating fall
+      m.shell.scale.setScalar(1 + Math.sin(m.t * 30) * 0.12);
+      // fire trail: embers + smoke puffs streaming off the rock
+      if (Math.random() < dt * 80) {
+        g.effects.glow(m.mesh.position.clone(), { color: 0xffa050, size: 2.6, life: 0.4, grow: 1.4 });
+      }
+      if (Math.random() < dt * 30) {
+        g.effects.burst(m.mesh.position.clone(), {
+          count: 4, color: 0xff8a30, color2: 0x553322, speed: 5, size: 0.4, life: 0.5, gravity: -2,
+        });
+      }
+      if (k >= 1) {
+        g.effects.impactBurst(m.to.clone(), { color: 0xff8a40, size: 9 });
+        g.effects.burst(m.to.clone(), { count: 70, color: 0xff9a40, color2: 0x442211, speed: 18, size: 0.5, life: 0.8 });
+        g.effects.ring(m.to.clone(), { color: 0xff7a30, endRadius: m.island.R + 8, life: 0.6, thickness: 0.8 });
+        g.hud?.flash('rgba(255, 110, 40, 0.18)', 0.35);
+        g.player.shake(Math.max(0.35, 1 - g.player.position.distanceTo(m.to) / 110));
+        g.audio?.play('explosion');
+        w.removeIsland(m.island);
+        this.sinking.push({ island: m.island, t: 0, spin: (w.hazardRng() - 0.5) * 0.8 });
+        w.hazardFx.remove(m.mesh);
+        m.mesh.traverse((o) => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) o.material.dispose();
+        });
+        this.meteors.splice(i, 1);
+      }
+    }
+
+    // struck islands break loose and sink into the void
     for (let i = this.sinking.length - 1; i >= 0; i--) {
       const s = this.sinking[i];
       s.t += dt;
       const grp = s.island.group;
       if (grp) {
-        grp.position.y -= (3 + s.t * 18) * dt;
+        grp.position.y -= (4 + s.t * 22) * dt;
         grp.rotation.x += s.spin * dt;
         grp.rotation.z += s.spin * 0.6 * dt;
-        if (s.t > 3.2) { grp.visible = false; this.sinking.splice(i, 1); }
+        if (s.t > 2.8) { grp.visible = false; this.sinking.splice(i, 1); }
       } else this.sinking.splice(i, 1);
     }
 
     // phase 2: the sky bombards the last island
-    if (this.t >= this.phase2At) {
+    if (this.phase2At !== null && this.t >= this.phase2At) {
       if (this.nextStrikeAt === null) this.nextStrikeAt = this.t;
       if (this.t >= this.nextStrikeAt) {
         const period = Math.max(1.8, 5 - (this.t - this.phase2At) * 0.08);

@@ -72,6 +72,10 @@ export class World {
     this.overtime = null;
     this._otMutated = false;
     this.gravityFlipped = false;   // Belt finale: default gravity points UP
+    // the exact flipped-gravity direction. The Belt finale sets this to the
+    // Canopy's field direction so "up" is IDENTICAL on and off the plate —
+    // any mismatch makes the camera frame snap when crossing the boundary
+    this.gravityFlipDir = new THREE.Vector3(0.03, 1, 0).normalize();
     this.skyKillY = null;          // when set, flying above this height = void death
 
     this._buildLights();
@@ -114,8 +118,10 @@ export class World {
       ? this.mapDef.makeHazards(this, this._game)
       : null;
     this.gravityFlipped = false;
+    this.gravityFlipDir.set(0.03, 1, 0).normalize();
     this.skyKillY = null;
     this.restoreMood();
+    this._otClockLast = 0;
     this.overtime = this.mapDef.makeOvertime
       ? this.mapDef.makeOvertime(this, this._game)
       : null;
@@ -800,9 +806,9 @@ export class World {
   // Graviton plates pull one way only: onto their face.
   gravityAt(pos, out) {
     const mul = this.mapDef.env.gravityMul ?? 1;
-    // Belt overtime finale: default gravity points UP (slightly off-axis so
-    // the camera's up-vector math never hits the degenerate opposite case)
-    if (this.gravityFlipped) out.set(0.03, 1, 0).normalize();
+    // Belt overtime finale: default gravity points UP, along the exact
+    // direction the event chose (matched to the Canopy's field)
+    if (this.gravityFlipped) out.copy(this.gravityFlipDir);
     else out.set(0, -1, 0);
     // plates claim their box-shaped field outright
     for (const pl of this.gravPlates) {
@@ -866,7 +872,13 @@ export class World {
       this.hazards.update(dt);
     }
     if (this.overtime && this._game?.state === 'playing') {
-      this.overtime.update(dt);
+      // overtime integrates on hazardClock DELTAS, not the scaled frame dt:
+      // hitstop fires asymmetrically on the two duel clients, and any state
+      // integrated with scaled dt (lava height, reel-in, rumble timers, the
+      // belt flip moment) would drift apart between them
+      const otDt = this.hazardClock - this._otClockLast;
+      this._otClockLast = this.hazardClock;
+      if (otDt > 0) this.overtime.update(otDt);
     }
   }
 }

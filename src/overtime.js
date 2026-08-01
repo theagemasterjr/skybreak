@@ -39,6 +39,10 @@ export class Overtime {
     if (!this.started) {
       if (this.world.hazardClock >= OT_AT) {
         this.started = true;
+        // overtime WILL reshape something (or mutate continuous state like
+        // orbit radii) — force a clean arena rebuild for the next round
+        // rather than trusting every event to remember to mark itself
+        this.world._otMutated = true;
         const g = this.game;
         g.hud?.announce('OVERTIME', '');
         g.hud?.flash('rgba(255, 64, 40, 0.22)', 0.6);

@@ -40,8 +40,11 @@ const _o1 = new THREE.Vector3();
 class CollapseOvertime extends Overtime {
   begin() {
     const w = this.world;
-    // ledges die top-down: crown first, funneling the fight toward the base
-    this.queue = w.platforms.slice().sort((a, b) => b.baseY - a.baseY);
+    // ledges die top-down, funneling the fight downward — but the CROWN at
+    // the very top survives: the last high ground is part of the drama
+    this.queue = w.platforms
+      .filter((p) => p.baseY < TOWER_H)
+      .sort((a, b) => b.baseY - a.baseY);
     this.islandQueue = w.islands
       .filter((i) => i.R < 15)
       .sort((a, b) => b.topY - a.topY);
