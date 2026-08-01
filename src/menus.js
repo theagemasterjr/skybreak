@@ -26,7 +26,12 @@ export class Menus {
     this.el.id = 'menus';
     root.appendChild(this.el);
     this.soloMap = 'classic';   // solo map choice (persists across runs)
+    this._botMode = false;      // class select doubles as the bot-duel setup screen
+    this._botClass = 'random';
+    this._botDifficulty = 'duelist';
     this._buildMain();
+    this._buildSp();
+    this._buildBotDiff();
     this._buildSelect();
     this._buildTutorialPick();
     this._buildPause();
@@ -40,6 +45,8 @@ export class Menus {
     this._buildMpPause();
     this.screens = {
       main: this.el.querySelector('#menu-main'),
+      sp: this.el.querySelector('#menu-sp'),
+      botdiff: this.el.querySelector('#menu-botdiff'),
       select: this.el.querySelector('#menu-select'),
       pause: this.el.querySelector('#menu-pause'),
       death: this.el.querySelector('#menu-death'),
@@ -120,13 +127,68 @@ export class Menus {
       </div>
     `;
     this.el.appendChild(s);
-    s.querySelector('#btn-play').addEventListener('click', () => this.game.showSelect());
+    s.querySelector('#btn-play').addEventListener('click', () => this.show('sp'));
     s.querySelector('#btn-multiplayer').addEventListener('click', () => {
       this.show('mp');
       this.game.ffa.refreshRooms();
     });
     s.querySelector('#btn-tutorial').addEventListener('click', () => this.show('tut'));
     s.querySelector('#btn-codex-main').addEventListener('click', () => this.openCodex('main'));
+  }
+
+  // ---------- singleplayer submenu ----------
+  _buildSp() {
+    const s = document.createElement('div');
+    s.id = 'menu-sp';
+    s.className = 'screen';
+    s.innerHTML = `
+      <div class="scrim"></div>
+      <div class="menu-content">
+        <h2 class="mp-title">SINGLEPLAYER</h2>
+        <button class="btn primary" id="btn-sp-waves">WAVE RUN <span class="btn-tag">ENDLESS</span></button>
+        <button class="btn duel" id="btn-sp-bot">DUEL A BOT <span class="btn-tag">VS AI</span></button>
+        <button class="btn" id="btn-sp-back">BACK</button>
+      </div>
+    `;
+    this.el.appendChild(s);
+    s.querySelector('#btn-sp-waves').addEventListener('click', () => {
+      this._botMode = false;
+      this.game.showSelect();
+    });
+    s.querySelector('#btn-sp-bot').addEventListener('click', () => this.show('botdiff'));
+    s.querySelector('#btn-sp-back').addEventListener('click', () => this.show('main'));
+  }
+
+  _buildBotDiff() {
+    const s = document.createElement('div');
+    s.id = 'menu-botdiff';
+    s.className = 'screen';
+    const tiers = [
+      ['rookie', 'ROOKIE', 'forgiving aim, slow reactions — learn the dance'],
+      ['duelist', 'DUELIST', 'a worthy rival — sharp aim, real dodges'],
+      ['nightmare', 'NIGHTMARE', 'reads your charge-ups. dodges before you fire.'],
+    ];
+    s.innerHTML = `
+      <div class="scrim"></div>
+      <div class="menu-content">
+        <h2 class="mp-title">DUEL A BOT</h2>
+        <p class="tut-sub">best of three rounds · full class kits · pick your poison</p>
+        ${tiers.map(([id, name, blurb]) =>
+          `<button class="btn${id === 'duelist' ? ' primary' : ''}" data-diff="${id}">${name} <span class="btn-tag">${blurb}</span></button>`
+        ).join('')}
+        <button class="btn" id="btn-botdiff-back">BACK</button>
+      </div>
+    `;
+    this.el.appendChild(s);
+    s.querySelectorAll('[data-diff]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this._botDifficulty = btn.dataset.diff;
+        this._botMode = true;
+        this._botClass = 'random';
+        this.game.showSelect();
+      });
+    });
+    s.querySelector('#btn-botdiff-back').addEventListener('click', () => this.show('sp'));
   }
 
   _buildSelect() {
@@ -168,12 +230,17 @@ export class Menus {
       ['random', 'RANDOM'], ['training', 'TRAINING']]
       .map(([id, name]) => `<button class="map-chip${id === 'classic' ? ' on' : ''}" data-map="${id}">${name}</button>`)
       .join('');
+    // bot-duel rival picker: surprise me, or drill a specific matchup
+    const botChips = [['random', 'RANDOM'], ...CLASS_LIST.map((id) => [id, CLASSES[id].name])]
+      .map(([id, name]) => `<button class="map-chip${id === 'random' ? ' on' : ''}" data-bot="${id}">${name}</button>`)
+      .join('');
     s.innerHTML = `
       <div class="scrim"></div>
       <div class="menu-content wide">
         <p class="select-heading">CHOOSE YOUR FIGHTER <span>press 1–6</span></p>
         <p id="duel-select-note"></p>
         <div id="map-row"><span class="map-row-label">BATTLEGROUND</span>${mapChips}</div>
+        <div id="bot-row"><span class="map-row-label">RIVAL</span>${botChips}</div>
         <div class="class-grid">${cols}</div>
       </div>
       <div id="duel-waiting">
@@ -187,16 +254,29 @@ export class Menus {
     s.querySelectorAll('.class-col').forEach((col) => {
       col.addEventListener('click', () => this._pickClass(col.dataset.class));
     });
-    s.querySelectorAll('.map-chip').forEach((chip) => {
+    s.querySelectorAll('[data-map]').forEach((chip) => {
       chip.addEventListener('click', (e) => {
         e.stopPropagation();
         this.soloMap = chip.dataset.map;
-        s.querySelectorAll('.map-chip').forEach((c) => c.classList.toggle('on', c === chip));
+        s.querySelectorAll('[data-map]').forEach((c) => c.classList.toggle('on', c === chip));
+      });
+    });
+    s.querySelectorAll('[data-bot]').forEach((chip) => {
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._botClass = chip.dataset.bot;
+        s.querySelectorAll('[data-bot]').forEach((c) => c.classList.toggle('on', c === chip));
       });
     });
   }
 
   _pickClass(id) {
+    if (this._botMode) {
+      const map = (this.soloMap === 'training' || this.soloMap === 'random') ? 'random' : this.soloMap;
+      this._botMode = false;
+      this.game.botDuel.start(id, this._botClass, this._botDifficulty, map);
+      return;
+    }
     if (this.game.ffa.active && this.game.ffa.phase === 'lobby') { this.game.ffa.pickClass(id); return; }
     if (this.game.duel.phase === 'select') { this.game.duel.pickClass(id); return; }
     if (this.soloMap === 'training') { this.game.startTutorial(id, 'free', 'training'); return; }
@@ -277,8 +357,8 @@ export class Menus {
       </div>
     `;
     this.el.appendChild(s);
-    s.querySelector('#btn-rematch').addEventListener('click', () => this.game.duel.requestRematch());
-    s.querySelector('#btn-duel-menu').addEventListener('click', () => this.game.duel.leave());
+    s.querySelector('#btn-rematch').addEventListener('click', () => this.game.activeDuel.requestRematch());
+    s.querySelector('#btn-duel-menu').addEventListener('click', () => this.game.activeDuel.leave());
   }
 
   _buildDuelPause() {
@@ -676,6 +756,12 @@ export class Menus {
       const mpPick = this.game.duel.phase === 'select'
         || (this.game.ffa.active && this.game.ffa.phase === 'lobby');
       this.el.querySelector('#map-row').style.display = mpPick ? 'none' : '';
+      // bot-duel dressing: rival row + difficulty note
+      this.el.querySelector('#bot-row').style.display = this._botMode ? '' : 'none';
+      if (this._botMode) {
+        this.el.querySelector('#duel-select-note').textContent =
+          `DUEL A BOT — ${this._botDifficulty.toUpperCase()} · BEST OF THREE`;
+      }
     }
   }
 
@@ -719,8 +805,12 @@ export class Menus {
     }
     if (active('tut') && e.code === 'Escape') {
       this.show('main');
+    } else if (active('sp') && e.code === 'Escape') {
+      this.show('main');
+    } else if (active('botdiff') && e.code === 'Escape') {
+      this.show('sp');
     } else if (active('main') && (e.code === 'Enter' || e.code === 'Space')) {
-      g.showSelect();
+      this.show('sp');
     } else if (active('select')) {
       const idx = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code);
       if (idx >= 0) this._pickClass(CLASS_LIST[idx]);

@@ -13,6 +13,7 @@ import { Menus } from './menus.js';
 import { Stats } from './stats.js';
 import { GameAudio } from './audio.js';
 import { Duel } from './duel.js';
+import { BotDuel } from './botDuel.js';
 import { Ffa } from './ffa.js';
 import { Tutorial } from './tutorial.js';
 
@@ -92,6 +93,7 @@ export class Game {
     this.stats = new Stats();
     this.hud = new HUD(this, uiRoot);
     this.duel = new Duel(this);
+    this.botDuel = new BotDuel(this);
     this.ffa = new Ffa(this);
     this.menus = new Menus(this, uiRoot);
     this.waves = new Waves(this);
@@ -137,7 +139,7 @@ export class Game {
       if (!locked && this.state === 'playing') {
         if (this.mode === 'duel') this.menus.show('duelpause');
         else if (this.mode === 'ffa') this.menus.show('mppause');
-        else this.pause();
+        else this.pause();   // solo AND bot duels: a real pause (bot freezes too)
       } else if (!locked && this.state === 'tutorial') {
         // practicing while dead in an FFA round: Esc opens the room menu, it
         // must NOT desert the room (toMenu would sever the net session)
@@ -161,6 +163,11 @@ export class Game {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
+  }
+
+  // the duel-like controller for the current mode (menus route through this)
+  get activeDuel() {
+    return this.mode === 'botduel' ? this.botDuel : this.duel;
   }
 
   // tear down the current world and build the given map in its place.
@@ -214,6 +221,11 @@ export class Game {
 
   toMenu() {
     if (this.state === 'tutorial') this.tutorial.exit();
+    if (this.mode === 'botduel') {
+      // abandoning a bot duel (pause -> abandon): tear the bot down cleanly
+      this.botDuel._dispose();
+      this.botDuel.phase = 'idle';
+    }
     this._clearBattlefield();
     // keep the last-played world as the menu backdrop: rebuilding classic on
     // every exit was a pointless hitch (and the views are all handsome)
@@ -328,6 +340,11 @@ export class Game {
       // duels resolve deaths per-round, not with the solo death screen
       this.audio?.play('playerDeath');
       this.duel.localDied();
+      return;
+    }
+    if (this.mode === 'botduel') {
+      this.audio?.play('playerDeath');
+      this.botDuel.localDied();
       return;
     }
     if (this.mode === 'ffa') {
@@ -615,6 +632,7 @@ export class Game {
     }
 
     if (this.mode === 'duel') this.duel.update(dt);
+    if (this.mode === 'botduel') this.botDuel.update(dt);
     if (this.mode === 'ffa') this.ffa.update(dt);
 
     this.player.update(dt, t);

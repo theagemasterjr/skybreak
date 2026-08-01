@@ -227,9 +227,9 @@ export class HUD {
   }
 
   // duel mode: the wave banner becomes the round + score readout
-  setDuelInfo(round, myScore, oppScore) {
+  setDuelInfo(round, myScore, oppScore, oppName) {
     this.waveLabel.textContent = `ROUND ${round}`;
-    this.waveRemaining.textContent = `YOU ${myScore} · ${oppScore} RIVAL`;
+    this.waveRemaining.textContent = `YOU ${myScore} · ${oppScore} ${oppName || 'RIVAL'}`;
   }
 
   // FFA: top-center "SPECTATING <NAME>" banner, or hide it when null. Safe to call repeatedly.
@@ -338,12 +338,13 @@ export class HUD {
       }
     }
 
-    // wave info (duel mode owns the banner via setDuelInfo instead)
-    if (g.waves && g.mode !== 'duel') {
+    // wave info (duel-like modes own the banner via setDuelInfo instead)
+    const duelish = g.mode === 'duel' || g.mode === 'botduel';
+    if (g.waves && !duelish) {
       const rem = g.waves.remaining();
       this.waveRemaining.textContent = g.waves.state === 'between' ? 'CLEARED' : `${rem} LEFT`;
     }
-    this.runKillsEl.textContent = g.mode !== 'duel' && g.runKills > 0 ? `${g.runKills} KILLS` : '';
+    this.runKillsEl.textContent = !duelish && g.runKills > 0 ? `${g.runKills} KILLS` : '';
 
     // damage vignette
     if (this.dmgFlashTimer > 0) this.dmgFlashTimer -= dt;
