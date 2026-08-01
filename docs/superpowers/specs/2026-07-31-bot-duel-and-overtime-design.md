@@ -75,8 +75,8 @@ Perception → intention → actuation, ticked every frame with per-difficulty r
 - **Classic — Skyfall.** Every 5s a meteor streaks in (brief targeting glow) and smashes a side island, which breaks loose and sinks into the void — gone for the round. When only the main island remains, meteors target it: red warning circles on the ground, then impact blasts (damage + knockback craters), with accelerating frequency. Escalation: fall rate keeps increasing.
 - **Tempest — The Storm.** A visible storm wall closes toward the eye over ~60s (Fortnite-style shrinking circle). Inside the wall: repeated lightning strikes (damage + fling) and violent gusts that toss players. Escalation: the circle keeps tightening past the eye and strike rate rises until only a sliver of calm remains.
 - **Ember — The Eruption.** The volcano erupts: lava bombs arc down leaving burning ground patches; a molten sea rises from below, swallowing the lowest islands one by one and forcing the fight upward. Escalation: sea keeps rising, bomb rate increases.
-- **Godspire — The Collapse.** The spire crumbles top-down: chunks shear off and orbiting ledges shatter one by one every few seconds with rumbles; the viable zone sinks with the destruction. When only the base remains, the black hole rages — stronger pull and launches — to force the finish.
-- **Void Garden — The Maw Awakens.** The Maw swells (growing pull radius), devours the orbiting platforms one by one (spiral-in + crunch), then drifts toward the garden, gnawing island edges while dragging players in. Escalation: unbounded growth.
+- **Godspire — The Collapse.** The spire sheds its ledges top-down: each rumbles, then shatters, funneling the fight toward the base; the three satellite islands crumble next. Endgame: marble-rubble bombardment (telegraphed strikes) on the survivors. *(Changed from the original "black hole rages" — Godspire has no black hole; that's Void Garden's Maw.)*
+- **Void Garden — The Maw Awakens.** The Maw swells (growing pull radius), reels the five orbiting gardens in and crunches them, and its grip turns lethal. Endgame: THE HUNT — the Maw itself glides toward the nearest fighter, ever faster. *(Changed from "gnaws island edges" — a mobile hunter is cheaper and scarier than terrain erosion.)*
 - **Belt — Canopy's Call.** Plates rumble/glow and launch upward **two at a time**, vanishing into the Canopy with a boom; the Canopy shakes harder with each dock; remaining islands crumble and launch too. When the last plates go, **gravity flips for all players** — everyone falls *up* and lands on the Canopy's colossal **underside**, fighting upside-down with the open sky as the new death-void (void checks invert). Escalation: the underside sheds cracked sections, shrinking the fightable ceiling.
 - **Training:** no overtime, ever.
 
@@ -87,6 +87,10 @@ Perception → intention → actuation, ticked every frame with per-difficulty r
 - Bot duels: the same event code runs; BotBrain reads event state for avoidance, and event damage to the bot applies through its takeDamage.
 
 ---
+
+## Debug menu (added during build, user request)
+
+Typing `skybreakiscool` anywhere toggles a tester panel: warp the overtime clock (OT in 10s / OT now / +30s), heal, invulnerability, force win/lose round (bot duels), quick-start a bot duel at any difficulty, jump between maps, and an **overtime sandbox** — solo on the current map, no bot, no wave enemies, clock warped to 10s before overtime.
 
 ## Testing
 
