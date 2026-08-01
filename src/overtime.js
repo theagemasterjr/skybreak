@@ -8,7 +8,7 @@ import * as THREE from 'three';
 // hurts its own player), same as the Maw and the geysers.
 // ---------------------------------------------------------------------------
 
-export const OT_AT = 124;   // ~3.6s pre-round countdown + 2:00 of fighting
+export const OT_AT = 94;   // ~3.6s pre-round countdown + 1:30 of fighting
 const _v = new THREE.Vector3();
 const _moodTint = new THREE.Color(0x66201a);   // the overtime crimson
 
@@ -146,11 +146,15 @@ export class StrikePool {
           kb.normalize().multiplyScalar(s.o.kb).setY(s.o.kb * 0.7);
         }
         if (v === g.player) {
-          v.takeDamage(s.o.dmg, s.pos, {});
+          // dmg 0 = pure shove — skip takeDamage so a harmless strike doesn't
+          // gift the player i-frames against the opponent's real hits
+          if (s.o.dmg > 0) v.takeDamage(s.o.dmg, s.pos, {});
           v.applyKnockback(kb.clone());
           g.player.shake(0.5);
-        } else {
+        } else if (s.o.dmg > 0) {
           v.takeDamage(s.o.dmg, { knockback: kb.clone(), source: 'hazard' });
+        } else if (v.applyKnockback) {
+          v.applyKnockback(kb.clone());
         }
       }
     }

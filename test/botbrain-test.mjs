@@ -25,10 +25,10 @@ let failures = 0;
 const fail = (msg) => { failures++; console.error('FAIL', msg); };
 const ok = (msg) => console.log('  ok', msg);
 
-function makeRig(classId, botSpawn) {
+function makeRig(classId, botSpawn, mapId = 'classic') {
   const scene = new THREE.Scene();
-  const world = new World(scene, MAP_DEFS.classic);
-  const sp = MAP_DEFS.classic.spawns.duel[0];
+  const world = new World(scene, MAP_DEFS[mapId]);
+  const sp = MAP_DEFS[mapId].spawns.duel[0];
   const aims = [];
   const game = {
     state: 'playing', mode: 'botduel', simTime: 0, enemies: [],
@@ -142,6 +142,59 @@ ok('difficulty tiers scale');
   if (minY < -70) fail(`fling: bot sank to y=${minY.toFixed(1)} — void recovery too weak`);
   else if (groundUnder === null && avatar.position.y < 0) fail('fling: bot ended over the void, still falling');
   else ok(`fling survival: ${flings} launches, minY=${minY.toFixed(1)}, back over land`);
+}
+
+// ---- nightmare under fire: an aggressive player (constant shots + heavy
+// knockback every 3s) must not ring the bot out, park it in permanent void
+// recovery, or reduce it to m1 spam — it keeps fighting with its whole kit ----
+for (const [mapId, classId, minDmg] of [['tempest', 'brawler', 150], ['godspire', 'mage', 300]]) {
+  const { world, game, avatar, owner } = makeRig(classId, MAP_DEFS[mapId].spawns.duel[1], mapId);
+  const brain = new BotBrain(game, owner, avatar, 'nightmare');
+  let dmg = 0, ults = 0;
+  game.player.takeDamage = (d) => { dmg += d; return true; };
+  game.projectiles.spawn = (o) => { game.projectiles.list.push(o); dmg += o.damage * 0.5; };
+  const ult = brain.kit.ult;
+  if (ult) { const orig = ult.use; ult.use = (b) => { ults++; orig(b); }; }
+  const rng = (() => { let s = 1337; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+  let big = world.islands[0];
+  for (const isl of world.islands) if (isl.R > big.R) big = isl;
+  let minY = Infinity, offMap = 0;
+  const dt = 1 / 60;
+  for (let i = 0; i < 60 * 60; i++) {
+    game.simTime += dt;
+    world.advanceClocks(dt, 'playing');
+    const p = game.player, t = game.simTime;
+    const orb = Math.min(big.R * 0.55, 14);
+    p.position.set(big.x + Math.cos(t * 0.5) * orb, p.position.y, big.z + Math.sin(t * 0.5) * orb);
+    const pg = world.groundHeightBelow(p.position.x, p.position.z, big.topY + big.domeH + 30, world.clock, 60);
+    p.position.y = (pg !== null ? pg : big.topY) + (Math.sin(t * 1.7) > 0.6 ? 2.5 : 0);
+    if (i % 20 === 0) {
+      const from = p.position.clone().setY(p.position.y + 1.2);
+      const dir = avatar.position.clone().setY(avatar.position.y + 1).sub(from).normalize();
+      game.projectiles.list.push({ owner: 'player', dead: false, pos: from, vel: dir.multiplyScalar(40), life: 2 });
+    }
+    for (let j = game.projectiles.list.length - 1; j >= 0; j--) {
+      const pr = game.projectiles.list[j];
+      if (pr.owner !== 'player') continue;
+      pr.pos.addScaledVector(pr.vel, dt);
+      pr.life -= dt;
+      if (pr.life <= 0) game.projectiles.list.splice(j, 1);
+    }
+    if (i % 180 === 90 && avatar.position.distanceTo(p.position) < 30) {
+      const kb = avatar.position.clone().sub(p.position).setY(0).normalize().multiplyScalar(14 + rng() * 12);
+      kb.y = 8 + rng() * 8;
+      brain.vel.add(kb);
+      brain.grounded = false;
+    }
+    brain.update(dt);
+    minY = Math.min(minY, avatar.position.y);
+    if (world.groundHeightBelow(avatar.position.x, avatar.position.z, avatar.position.y + 2, world.clock, 400) === null) offMap += dt;
+  }
+  if (minY < -90) fail(`nightmare ${classId}/${mapId}: rung out under pressure (minY=${minY.toFixed(0)})`);
+  if (offMap > 20) fail(`nightmare ${classId}/${mapId}: lived over the void (${offMap.toFixed(1)}s off map)`);
+  if (dmg < minDmg) fail(`nightmare ${classId}/${mapId}: too passive (${dmg.toFixed(0)} dmg in 60s, want ${minDmg}+)`);
+  if (!ults) fail(`nightmare ${classId}/${mapId}: never used its ult`);
+  if (!failures) ok(`nightmare ${classId}/${mapId} under fire: ${dmg.toFixed(0)} dmg, ${ults} ults, offMap=${offMap.toFixed(1)}s, minY=${minY.toFixed(0)}`);
 }
 
 console.log(failures ? `\n${failures} FAILURES` : '\nPASS');

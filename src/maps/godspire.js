@@ -54,6 +54,22 @@ class CollapseOvertime extends Overtime {
     this.nextAt = this.t + 2;
     this.nextStrikeAt = null;
     this.bombardAt = null;
+
+    // ---- THE FINALE: the base island drops, then the spire itself sheds
+    // its drum sections bottom-to-top, herding whoever's left up to the
+    // crown — the last surface standing. Kicks off a beat after bombardment
+    // starts (once the ledges/satellites are already gone), and runs its
+    // course while the round is still very plausibly live.
+    this.baseIsland = w.islands.find((isl) => isl.R >= 15) || w.islands[0];
+    this.sections = (w._spireSections || []).slice().sort((a, b) => a.yBottom - b.yBottom);
+    this.sectionIdx = 0;
+    this.sectionRumble = null;     // {sec, t}
+    this.sectionSinking = [];      // {group, t, spin}
+    this.finaleAt = null;
+    this.finaleStage = 'wait';     // wait -> islandRumble -> islandSink -> spire -> done
+    this.islandRumbleT = 0;
+    this.islandSinking = null;     // {t, spin}
+    this.nextSectionAt = null;
   }
 
   tick(dt) {
@@ -136,6 +152,97 @@ class CollapseOvertime extends Overtime {
       }
     }
     this.strikes.update(dt);
+
+    // ---- THE FINALE ----
+    // arm once bombardment has started (ledges + satellites already gone);
+    // let a couple of rubble volleys land first, then take the ground away
+    if (this.finaleAt === null && this.bombardAt !== null) this.finaleAt = this.bombardAt + 8;
+
+    if (this.finaleStage === 'wait' && this.finaleAt !== null && this.t >= this.finaleAt) {
+      this.finaleStage = 'islandRumble';
+      this.islandRumbleT = 1.4;
+      this.bombardAt = null;   // the rubble stops; the ground itself is going
+      this.log.push([Math.round(w.hazardClock), 'finale']);
+      g.audio?.play('windup');
+      g.player.shake(0.3);
+    }
+
+    if (this.finaleStage === 'islandRumble') {
+      this.islandRumbleT -= dt;
+      if (this.baseIsland?.group) {
+        this.baseIsland.group.position.x = (Math.random() - 0.5) * 0.5;
+        this.baseIsland.group.position.z = (Math.random() - 0.5) * 0.5;
+      }
+      if (this.islandRumbleT <= 0) {
+        this.finaleStage = 'islandSink';
+        const pos = _o1.set(this.baseIsland.x, this.baseIsland.topY, this.baseIsland.z).clone();
+        g.effects.impactBurst(pos.clone(), { color: 0xd8cfc0, size: 6 });
+        g.effects.burst(pos.clone(), { count: 40, color: 0xd8cfc0, color2: 0x8a7f70, speed: 11, size: 0.4, life: 0.7, gravity: 12, additive: false });
+        g.audio?.play('explosion');
+        g.player.shake(Math.max(0.25, 1 - g.player.position.distanceTo(pos) / 90));
+        w.removeIsland(this.baseIsland);
+        this.islandSinking = { t: 0, spin: (w.hazardRng() - 0.5) * 0.5 };
+        this.log.push([Math.round(w.hazardClock), 'baseIsland']);
+        this.nextSectionAt = this.t + 2.5;   // the spire starts shedding shortly after
+      }
+    }
+
+    if (this.islandSinking) {
+      const s = this.islandSinking;
+      s.t += dt;
+      const grp = this.baseIsland.group;
+      if (grp) {
+        grp.position.y -= (2.5 + s.t * 16) * dt;
+        grp.rotation.x += s.spin * dt;
+        if (s.t > 3.2) { grp.visible = false; this.islandSinking = null; }
+      } else this.islandSinking = null;
+    }
+
+    // the spire sheds its sections lowest-first, on a readable cadence — a
+    // brief rumble + red glow telegraph before each one lets go
+    if (this.finaleStage === 'islandSink' && this.nextSectionAt !== null
+      && this.t >= this.nextSectionAt && !this.sectionRumble && this.sectionIdx < this.sections.length) {
+      this.sectionRumble = { sec: this.sections[this.sectionIdx], t: 1.1 };
+      this.log.push([Math.round(w.hazardClock), 'section']);
+      g.audio?.play('windup');
+    }
+    if (this.sectionIdx >= this.sections.length && this.finaleStage === 'islandSink' && !this.sectionRumble) {
+      this.finaleStage = 'done';
+    }
+
+    if (this.sectionRumble) {
+      const r = this.sectionRumble;
+      r.t -= dt;
+      const sec = r.sec;
+      sec.group.position.x = (Math.random() - 0.5) * 0.35;
+      sec.group.position.z = (Math.random() - 0.5) * 0.35;
+      sec.mat.emissiveIntensity = Math.max(0, 1.6 - r.t) * (0.6 + 0.4 * Math.abs(Math.sin(this.t * 16)));
+      if (r.t <= 0) {
+        const midY = (sec.yBottom + sec.yTop) / 2;
+        const pos = _o1.set(0, midY, 0).clone();
+        g.effects.impactBurst(pos.clone(), { color: 0xd8cfc0, size: 4.5 });
+        g.effects.burst(pos.clone(), { count: 30, color: 0xd8cfc0, color2: 0x8a7f70, speed: 10, size: 0.4, life: 0.7, gravity: 14, additive: false });
+        g.audio?.play('explosion');
+        g.player.shake(Math.max(0.15, 1 - g.player.position.distanceTo(pos) / 60));
+        const ci = w.columns.indexOf(sec.column);
+        if (ci >= 0) w.columns.splice(ci, 1);
+        sec.group.position.set(0, 0, 0);
+        sec.mat.emissiveIntensity = 0;
+        this.sectionSinking.push({ group: sec.group, t: 0, spin: (w.hazardRng() - 0.5) * 0.6 });
+        this.sectionIdx++;
+        this.sectionRumble = null;
+        this.nextSectionAt = this.t + 3.2;
+      }
+    }
+
+    for (let i = this.sectionSinking.length - 1; i >= 0; i--) {
+      const s = this.sectionSinking[i];
+      s.t += dt;
+      const grp = s.group;
+      grp.position.y -= (3 + s.t * 18) * dt;
+      grp.rotation.z += s.spin * dt;
+      if (s.t > 3) { grp.visible = false; this.sectionSinking.splice(i, 1); }
+    }
   }
 }
 
@@ -192,26 +299,40 @@ export const GODSPIRE = {
     const marbleA = new THREE.MeshStandardMaterial({ color: 0xd8cfc0, roughness: 0.85, flatShading: true });
     const marbleB = new THREE.MeshStandardMaterial({ color: 0xc4b8a6, roughness: 0.9, flatShading: true });
     const SEGS = 5;
+    // each drum + its cornice ring lives in its own group, on its OWN cloned
+    // material — so the overtime finale can sink one section and pulse its
+    // material red as a telegraph without touching the other four (which
+    // would happen if they all shared the same marbleA/marbleB instance)
+    world._spireSections = [];
     for (let i = 0; i < SEGS; i++) {
       const y0 = (i / SEGS) * TOWER_H;
       const y1 = ((i + 1) / SEGS) * TOWER_H;
+      const segMat = (i % 2 ? marbleB : marbleA).clone();
+      segMat.emissive = new THREE.Color(0xff5a30);
+      segMat.emissiveIntensity = 0;
+      const segGroup = new THREE.Group();
+      root.add(segGroup);
+
       const drum = new THREE.Mesh(
         new THREE.CylinderGeometry(towerR(y1), towerR(y0) * 1.02, y1 - y0, 14),
-        i % 2 ? marbleB : marbleA
+        segMat
       );
       drum.position.y = (y0 + y1) / 2;
       drum.castShadow = true;
       drum.receiveShadow = true;
-      root.add(drum);
+      segGroup.add(drum);
       // ring cornice between drums
       const ring = new THREE.Mesh(
         new THREE.CylinderGeometry(towerR(y1) + 0.7, towerR(y1) + 0.7, 0.8, 14),
-        marbleB
+        segMat
       );
       ring.position.y = y1;
       ring.castShadow = true;
-      root.add(ring);
-      world.columns.push({ x: 0, z: 0, r: towerR(y0), yBottom: y0, yTop: y1 });
+      segGroup.add(ring);
+
+      const column = { x: 0, z: 0, r: towerR(y0), yBottom: y0, yTop: y1 };
+      world.columns.push(column);
+      world._spireSections.push({ group: segGroup, mat: segMat, column, yBottom: y0, yTop: y1 });
     }
 
     // ---- spiral ledges winding up the outside: alive — rising, falling,

@@ -1,5 +1,6 @@
 ﻿import * as THREE from 'three';
 import { Overtime, StrikePool } from '../overtime.js';
+import { noise2 } from '../utils.js';
 
 // ---------------------------------------------------------------------------
 // Shattered Belt: an asteroid field drifting in deep-space dusk. Normal
@@ -197,13 +198,116 @@ class CanopyOvertime extends Overtime {
         for (const v of this.pool._defaultVictims()) {
           if (!v || !v.alive) continue;
           const p = this._projectToFace(v.position);
-          this.pool.spawn(p, { r: 5, dmg: 18, kb: 12, color: 0x55e8ff, warnT: 1.2, normal: this.canopy.normal });
+          // movement pressure only, never chip damage: the static discharge
+          // shoves you around the Canopy's face (and still telegraphs/booms
+          // for drama) but never touches health
+          this.pool.spawn(p, { r: 5, dmg: 0, kb: 12, color: 0x55e8ff, warnT: 1.2, normal: this.canopy.normal });
         }
         this.log.push([Math.round(w.hazardClock), 'strike']);
       }
     }
     this.pool.update(dt);
   }
+}
+
+// ---------------------------------------------------------------------------
+// The Canopy's silhouette — built independently of the generic faceted
+// gravPlate slab in world.js (never touched: this replaces the mesh after
+// the fact via the mapDef.build hook). Two layered noise bands erode the
+// rim per-angle (the same trick as World.edgeRadius for organic islands,
+// just noisier), plus per-vertex relief on both faces, so the shape reads
+// as a jagged, irregular rock chunk — explicitly NOT a clean N-gon like
+// every other plate in this map.
+// ---------------------------------------------------------------------------
+function _canopyEdgeAt(theta, R, seed) {
+  const n1 = noise2(Math.cos(theta) * 1.3 + seed, Math.sin(theta) * 1.3 + seed);
+  const n2 = noise2(Math.cos(theta) * 3.4 - seed * 1.7, Math.sin(theta) * 3.4 - seed * 1.7);
+  // stay close to the plate's half-extent: the landing collision is the full
+  // rectangle, so a deeply eroded rim = walking on invisible air
+  return R * (0.82 + 0.13 * n1 + 0.09 * n2);
+}
+
+function buildCanopyGeometry(R, seed, paintRng) {
+  const segs = 30;
+  const topRings = 4;
+  const botRings = 5;
+  const positions = [];
+
+  // local +y is the PULLING face — players stand at +0.37 along the plate
+  // normal (see the gravPlate landing code), so this surface must sit just
+  // UNDER that walk plane, with relief only dipping away from it. Bulging
+  // above it buries players inside the rock.
+  const topVert = (ring, seg) => {
+    const theta = (seg / segs) * Math.PI * 2;
+    const edge = _canopyEdgeAt(theta, R, seed);
+    const t = ring / topRings;
+    const r = t * edge;
+    const relief = Math.abs(noise2(theta * 2.8 + seed, t * 4.4 + seed) - 0.5) * R * 0.07 * t;
+    const y = 0.32 - relief;
+    return [Math.cos(theta) * r, y, Math.sin(theta) * r];
+  };
+  // local -y is the visual back (faces the sky once the canopy's tilt maps
+  // the pulling face world-down) — the craggy tapered bulk lives here
+  const botVert = (ring, seg) => {
+    const theta = (seg / segs) * Math.PI * 2;
+    const edge = _canopyEdgeAt(theta, R, seed);
+    const t = ring / botRings;
+    const taper = Math.pow(1 - t, 1.25);
+    const wobble = 1 + (noise2(theta * 2.1 - seed, t * 3.6 - seed) - 0.5) * 0.5 * t;
+    const r = edge * taper * wobble;
+    const jag = (noise2(theta * 3.3 - seed, t * 5.2 - seed) - 0.5) * R * 0.1 * t;
+    const y = -R * 0.3 * t + jag;
+    return [Math.cos(theta) * r, y, Math.sin(theta) * r];
+  };
+
+  const quad = (a, b, c, d) => { positions.push(...a, ...b, ...c, ...a, ...c, ...d); };
+
+  // top face: center fan + rings
+  const center = topVert(0, 0);
+  for (let s = 0; s < segs; s++) {
+    const v1 = topVert(1, s), v2 = topVert(1, s + 1);
+    positions.push(...center, ...v2, ...v1);
+  }
+  for (let r = 1; r < topRings; r++) {
+    for (let s = 0; s < segs; s++) {
+      quad(topVert(r, s), topVert(r, s + 1), topVert(r + 1, s + 1), topVert(r + 1, s));
+    }
+  }
+  // underside — shares its first ring with the top face's outer rim, so
+  // there's no seam between the two
+  for (let r = 0; r < botRings; r++) {
+    for (let s = 0; s < segs; s++) {
+      const a = r === 0 ? topVert(topRings, s) : botVert(r, s);
+      const b = r === 0 ? topVert(topRings, s + 1) : botVert(r, s + 1);
+      quad(a, b, botVert(r + 1, s + 1), botVert(r + 1, s));
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+
+  // painterly per-face color: bright crystal purple with cyan static veins —
+  // the belt was flagged "too dark" before, so this stays saturated and lit,
+  // never a dark slab
+  const count = geo.attributes.position.count;
+  const colors = new Float32Array(count * 3);
+  const colorA = new THREE.Color(0x9a5eff);
+  const colorB = new THREE.Color(0x5a2aa0);
+  const accent = new THREE.Color(0x55e8ff);
+  const c = new THREE.Color();
+  for (let f = 0; f < count / 3; f++) {
+    c.lerpColors(colorA, colorB, paintRng() * 0.75);
+    if (paintRng() > 0.88) c.lerp(accent, 0.35 + paintRng() * 0.25);
+    c.offsetHSL(0, 0, (paintRng() - 0.5) * 0.1);
+    for (let v = 0; v < 3; v++) {
+      colors[(f * 3 + v) * 3] = c.r;
+      colors[(f * 3 + v) * 3 + 1] = c.g;
+      colors[(f * 3 + v) * 3 + 2] = c.b;
+    }
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  return geo;
 }
 
 export const BELT = {
@@ -272,14 +376,31 @@ export const BELT = {
     { x: -42, y: 26, z: 44, w: 9, d: 9, yaw: 4.2, tilt: 0.9 },     // steep ramp
     { x: 24, y: 14, z: 6, w: 6, d: 6, yaw: 2.8, tilt: 0.2 },       // little hop-stone
     { x: 2, y: 28, z: -18, w: 13, d: 13, yaw: 1.7, tilt: -0.5 },   // the big tilted crown
-    // THE CANOPY: a colossal jagged shard crowning the whole map â€” bigger
-    // than the main island â€” hanging high, face-down. Fly up under it and it
-    // catches you; you walk its underside with the entire belt overhead.
-    { x: 4, y: 62, z: 4, w: 32, d: 32, yaw: 0.9, tilt: Math.PI - 0.1, sides: 7, squash: 0.55, canopy: true },
+    // THE CANOPY: a colossal jagged shard crowning the whole map â€” now
+    // twice its old footprint (w/d 32 -> 64) and dwarfing every island â€”
+    // hanging high, face-down. Fly up under it and it catches you; you walk
+    // its underside with the entire belt overhead. Its mesh is NOT the
+    // generic faceted N-gon every other plate uses: BELT.build() below
+    // replaces it with a noise-eroded, irregular rock silhouette so it
+    // reads as a landmark, not another belt polygon.
+    { x: 4, y: 62, z: 4, w: 64, d: 64, yaw: 0.9, tilt: Math.PI - 0.1, canopy: true },
   ],
 
   makeOvertime(world, game) {
     return new CanopyOvertime(world, game);
+  },
+
+  // runs once, after World has built every gravPlate (including the Canopy's
+  // generic faceted slab) — swaps just the Canopy's mesh geometry for an
+  // irregular, noise-eroded silhouette. world.js's plate builder is left
+  // completely untouched; this only reaches into the mesh it already made.
+  build(world, root, rng) {
+    const cp = world.gravPlates.find((p) => p.canopy);
+    if (!cp || !cp.slab) return;
+    const R = cp.w / 2;
+    const oldGeo = cp.slab.geometry;
+    cp.slab.geometry = buildCanopyGeometry(R, 4242, rng);
+    oldGeo.dispose();
   },
 
   spawns: {

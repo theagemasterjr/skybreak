@@ -6,12 +6,24 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 
+// grown-Maw far field tuning: continuous with the near-field's floor value
+// (45, the strength right at d===pullR) and decaying like ~1/d^2 beyond it.
+const MAW_FAR_BASE = 45;
+const MAW_FAR_SPREAD = 14;
+
 // ---------------------------------------------------------------------------
 // THE MAW: a black hole hanging over the central garden. Drift too close and
 // it drags you in, holds you at its heart for a beat, then hurls you out in
 // a random skyward direction. Never deals damage — it's a ride, and a trap.
 // Affects only the local player (each client rides its own maw), so nothing
 // needs network sync; a grace period stops instant re-grabs.
+//
+// Once overtime grows the Maw (this.farField, set by MawOvertime.begin),
+// its gravity stops being a hard-radius trap and becomes a field that
+// covers the whole arena: full strength inside pullR (unchanged), then a
+// smooth 1/d^2-shaped falloff beyond it — a gentle trajectory-bending pull
+// far out, never strong enough on its own to reel in a grounded player.
+// Pure movement force, no damage; mirrors into bot brainVel in MawOvertime.
 // ---------------------------------------------------------------------------
 class MawHazard {
   constructor(world, game) {
@@ -23,6 +35,7 @@ class MawHazard {
     this.holdT = 0;
     this.grace = 0;
     this.t = 0;
+    this.farField = false;   // flips true once overtime grows the Maw
 
     const fx = world.hazardFx;
     // one group holds every Maw mesh so the whole thing can move (overtime
@@ -164,6 +177,15 @@ class MawHazard {
         g.audio?.play('windup');
         g.effects.ring(this.center.clone(), { color: 0xa060ff, endRadius: 5, life: 0.4, thickness: 0.4 });
       }
+    } else if (this.farField) {
+      // grown-Maw far field: smooth inverse-square-ish falloff beyond the
+      // strong zone, continuous with it (equals 45 right at d===pullR),
+      // decaying toward ~nothing at arena-far range. No damage, no speed
+      // clamp override — just a curve on top of normal movement.
+      _v2.copy(this.center).sub(_v1).normalize();
+      const beyond = d - this.pullR;
+      const a = MAW_FAR_BASE / (1 + (beyond / MAW_FAR_SPREAD) ** 2);
+      p.vel.addScaledVector(_v2, dt * a);
     }
   }
 }
@@ -181,6 +203,7 @@ class MawOvertime extends Overtime {
     if (maw) {
       maw.holdDps = 16;
       maw.grace = Math.min(maw.grace, 2);
+      maw.farField = true;   // gravity now reaches the whole arena
     }
   }
 
@@ -248,15 +271,21 @@ class MawOvertime extends Overtime {
     }
 
     // in a bot duel the Maw also drags the bot's body (its brain fights back)
+    // — mirrors the player's near-field pull and grown-Maw far field, both
+    // pure movement force (only the sub-2.5 crush deals damage, unchanged)
     if (g.mode === 'botduel') {
       for (const e of g.enemies) {
-        if (e.type !== 'duelist' || !e.alive) continue;
+        if (e.type !== 'duelist' || !e.alive || !e.brainVel) continue;
         _v3.copy(e.position).setY(e.position.y + 1);
         const d = _v3.distanceTo(maw.center);
-        if (d < maw.pullR && e.brainVel) {
-          _v2.copy(maw.center).sub(_v3).normalize();
+        _v2.copy(maw.center).sub(_v3).normalize();
+        if (d < maw.pullR) {
           e.brainVel.addScaledVector(_v2, dt * (45 + 130 * (1 - d / maw.pullR)));
           if (d < 2.5) e.takeDamage(maw.holdDps * dt, { source: 'hazard' });
+        } else {
+          const beyond = d - maw.pullR;
+          const a = MAW_FAR_BASE / (1 + (beyond / MAW_FAR_SPREAD) ** 2);
+          e.brainVel.addScaledVector(_v2, dt * a);
         }
       }
     }

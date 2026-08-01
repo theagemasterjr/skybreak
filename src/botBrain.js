@@ -20,9 +20,11 @@ const _grav = new THREE.Vector3(0, -1, 0);
 const _up = new THREE.Vector3(0, 1, 0);
 
 export const BOT_DIFFICULTY = {
-  rookie:    { reaction: 0.45, aimErr: 0.14,  dodge: 0.25, lead: 0.3, cdMul: 1.35, predictive: false },
-  duelist:   { reaction: 0.28, aimErr: 0.08,  dodge: 0.55, lead: 0.7, cdMul: 1.0,  predictive: false },
-  nightmare: { reaction: 0.15, aimErr: 0.035, dodge: 0.85, lead: 1.0, cdMul: 0.85, predictive: true },
+  rookie:    { reaction: 0.45, aimErr: 0.14,  dodge: 0.25, lead: 0.3, cdMul: 1.35, predictive: false, dmgMul: 1 },
+  duelist:   { reaction: 0.28, aimErr: 0.08,  dodge: 0.55, lead: 0.7, cdMul: 1.0,  predictive: false, dmgMul: 1 },
+  // nightmare fights at stat parity with the player (dmgMul 1.2 cancels the
+  // kits' built-in ~15% underclock) and cycles abilities near-on-cooldown
+  nightmare: { reaction: 0.12, aimErr: 0.03,  dodge: 0.85, lead: 1.0, cdMul: 0.7,  predictive: true,  dmgMul: 1.2 },
 };
 
 // ---- kit factories ----
@@ -35,7 +37,7 @@ function bolt(dmg, speed, cd, color, poison = null) {
       const dir = b.aimAtPlayer(speed);
       b.g.projectiles.spawn({
         pos: from, vel: dir.multiplyScalar(speed),
-        owner: 'enemy', damage: dmg, color, size: 0.4,
+        owner: 'enemy', damage: dmg * b.dmgMul, color, size: 0.4,
         gravity: 0, life: 4, knockback: 6, poison,
       });
       b.g.audio?.play('enemyShot');
@@ -51,7 +53,7 @@ function melee(dmg, range, cd) {
       const g = b.g;
       _v1.copy(g.player.position).setY(g.player.position.y + 0.9);
       if (b.avatar.center(_v2).distanceTo(_v1) < range + 0.6) {
-        if (g.player.takeDamage(dmg, b.avatar.position, {})) {
+        if (g.player.takeDamage(dmg * b.dmgMul, b.avatar.position, {})) {
           const push = _v1.copy(g.player.position).sub(b.avatar.position).setY(0).normalize().multiplyScalar(9);
           push.y = 5;
           g.player.applyKnockback(push);
@@ -69,6 +71,7 @@ export class BotBrain {
     this.owner = owner;
     this.avatar = avatar;
     this.diff = BOT_DIFFICULTY[difficulty] || BOT_DIFFICULTY.duelist;
+    this.dmgMul = this.diff.dmgMul || 1;
     this.stats = CLASSES[avatar.classId].stats;
     this.kit = BOT_KITS[avatar.classId] || BOT_KITS.mage;
     this.vel = new THREE.Vector3();
@@ -93,6 +96,7 @@ export class BotBrain {
     // opening grace: the bot doesn't dump its whole kit at the bell
     this.cds = { basic: 1, gap: 3, burst: 4, escape: 2, ult: 12 };
     this.hesitateT = 0;
+    this._dodgeCd = 0;
     this.strafeSign = 1;
     this.hopT = 1 + Math.random();
     this._spinT = 0;
@@ -152,10 +156,34 @@ export class BotBrain {
     this.g.effects.glow(this.avatar.center(_v1).clone(), { color: 0xff6655, size: 1.1, life: 0.15 });
   }
 
+  // is there land under (x, z) at/below us, or at most a jumpable step up?
+  // (a wide up-tolerance here read cliff faces far overhead as "land" and
+  // blinded the void checks — tolerance must stay near jump height)
+  _groundAt(x, z) {
+    return this.g.world.groundHeightBelow(x, z, this.avatar.position.y + 4, 0, 12) !== null;
+  }
+
+  // a sideways dodge direction that doesn't carry us off the map: try both
+  // strafe sides (a dash covers ~7u), else dodge toward safe land instead
+  _dodgeDir() {
+    const a = this.avatar.position;
+    const side = this._sideDir();
+    if (this.g.world.gravityFlipped) return side;
+    for (let i = 0; i < 2; i++) {
+      if (this._groundAt(a.x + side.x * 7, a.z + side.z * 7)) return side;
+      side.multiplyScalar(-1);
+    }
+    return this._safeGoal().sub(a).setY(0).normalize();
+  }
+
   // ---------- perception / decisions ----------
   _maybeDodge() {
+    if (this._recovering) return;   // never cancel a void recovery to dodge
+    if (this._dodgeCd > 0) return;  // dodging every tick made the bot a pinball
     if (Math.random() > this.diff.dodge) return;
     const g = this.g, a = this.avatar;
+    const inFace = this.kit.range < 8
+      && a.position.distanceTo(this.knownPos) < 7;
     let threat = !!(g.player.alive && g.combat?.charging);
     for (const pr of g.projectiles.list) {
       if (pr.owner !== 'player' || pr.dead) continue;
@@ -163,9 +191,13 @@ export class BotBrain {
       const t = _v1.dot(pr.vel) / (pr.vel.lengthSq() || 1);
       if (t > 0 && t < 0.6 && _v1.addScaledVector(pr.vel, -t).length() < 3) { threat = true; break; }
     }
-    // nightmare: sometimes moves before the shot even fires
-    if (this.diff.predictive && g.input?.attackDown?.() && Math.random() < 0.4) threat = true;
-    if (threat) this._dash(this._sideDir());
+    // nightmare: sometimes moves before the shot even fires — but a melee
+    // bot already in your face stands and trades instead of hopping out
+    if (this.diff.predictive && !inFace && g.input?.attackDown?.() && Math.random() < 0.4) threat = true;
+    if (threat) {
+      this._dash(this._dodgeDir());
+      this._dodgeCd = 0.55 + Math.random() * 0.5;
+    }
   }
 
   _hazardDanger(pos) {
@@ -220,10 +252,16 @@ export class BotBrain {
           .multiplyScalar(s.o.r + 4).add(this.avatar.position).clone();
       }
     }
-    // default: nearest island top near the player
+    // default: score islands by edge distance to us AND to the player.
+    // Mid-flight across a gap the player-side island must keep winning or
+    // recovery boomerangs us back to the island we just jumped from — but
+    // once we're falling hard, the truly nearest land is the only goal.
+    const me = this.avatar.position;
+    const wP = this.vel.y < -14 ? 0.3 : 1.2;
     let best = null, bd = Infinity;
     for (const isl of w.islands) {
-      const d = Math.hypot(isl.x - this.knownPos.x, isl.z - this.knownPos.z);
+      const d = Math.max(0, Math.hypot(isl.x - me.x, isl.z - me.z) - isl.R)
+        + wP * Math.max(0, Math.hypot(isl.x - this.knownPos.x, isl.z - this.knownPos.z) - isl.R);
       if (d < bd) { bd = d; best = isl; }
     }
     if (best) return new THREE.Vector3(best.x, best.topY + 2, best.z);
@@ -258,8 +296,10 @@ export class BotBrain {
       const want = (this.intent === 'finish' ? 0.5 : 1)
         * (isMelee ? this.kit.range * 0.55 : this.kit.range);
       const gain = isMelee ? 0.7 : 0.25;
+      // melee: strafing while still far just dilutes the chase — save the
+      // side-step for when we're actually in someone's face
       wish.addScaledVector(flat, (d - want) * gain)
-          .addScaledVector(side, isMelee ? 4 : 6);
+          .addScaledVector(side, isMelee ? (d < 8 ? 4 : 1.5) : 6);
     } else if (this.intent === 'evade') {
       wish.addScaledVector(flat, -8).addScaledVector(side, 5);
     } else {
@@ -279,7 +319,7 @@ export class BotBrain {
     if (!this.g.world.gravityFlipped) {
       _v1.set(a.position.x + (this.vel.x + wish.x) * 0.6,
         a.position.y, a.position.z + (this.vel.z + wish.z) * 0.6);
-      const ahead = this.g.world.groundHeightBelow(_v1.x, _v1.z, a.position.y + 4, 0, 200);
+      const ahead = this.g.world.groundHeightBelow(_v1.x, _v1.z, a.position.y + 4, 0, 12);
       if (ahead === null) {
         this._gapAhead = true;
         const goal = this._safeGoal();
@@ -317,7 +357,9 @@ export class BotBrain {
       // player gets a free dash refill in the recover zone; the bot gets the
       // same deal, once per fall.)
       this._recovering = false;
-      const ground = w.groundHeightBelow(a.position.x, a.position.z, a.position.y + 2, 0, 400);
+      // "landable ground" = at/below us (falling past a tall island's face
+      // with its top far overhead is still a void fall — recover!)
+      const ground = w.groundHeightBelow(a.position.x, a.position.z, a.position.y + 2, 0, 0.5);
       if (ground === null) {
         this._recovering = true;
         if (!this._recoverAssistUsed) {
@@ -332,12 +374,12 @@ export class BotBrain {
           // kill outward momentum fast, steer home
           this.vel.x += (dir.x * 14 - this.vel.x) * Math.min(1, 6 * dt);
           this.vel.z += (dir.z * 14 - this.vel.z) * Math.min(1, 6 * dt);
-          if (this.dashCharges > 0 && this.vel.y < -10) {
+          if (this.dashCharges > 0 && this.vel.y < -6) {
             const up = _v2.copy(dir); up.y = 0.85;
             this._dash(up.normalize());
           } else if (a.position.y < goal.y + 2) {
             // sustained climb, stronger the further from safety we are
-            this.vel.y = Math.max(this.vel.y, Math.min(14, 6 + dh * 0.25));
+            this.vel.y = Math.max(this.vel.y, Math.min(16, 7 + dh * 0.3));
           }
         }
       } else {
@@ -387,11 +429,13 @@ export class BotBrain {
       this.cds.escape = kit.escape.cd * this.diff.cdMul;
       kit.escape.use(this);
     }
-    // ult: saved for a real opening
+    // ult: saved for a real opening — except nightmare, which also just
+    // rips it near-on-cooldown (waiting for perfect openings meant never)
     const p = this.g.player;
     const opening = p.rootTimer > 0 || p.health < p.maxHealth * 0.4
-      || (this.g.combat?.charging && this.diff.predictive);
-    if (kit.ult && this.cds.ult <= 0 && opening && d < kit.range * 1.6) {
+      || (this.g.combat?.charging && this.diff.predictive)
+      || (this.diff.predictive && Math.random() < dt * 0.4);
+    if (kit.ult && this.cds.ult <= 0 && opening && d < Math.max(9, kit.range * 1.6)) {
       this.cds.ult = kit.ult.cd * this.diff.cdMul;
       kit.ult.use(this);
     }
@@ -410,7 +454,7 @@ export class BotBrain {
           dir.z += (Math.random() - 0.5) * spread;
           this.g.projectiles.spawn({
             pos: from, vel: dir.normalize().multiplyScalar(speed),
-            owner: 'enemy', damage: dmg, color, size: 0.35,
+            owner: 'enemy', damage: dmg * this.dmgMul, color, size: 0.35,
             gravity: 0, life: 4, knockback: 5, poison,
           });
           this.g.audio?.play('enemyShot');
@@ -421,14 +465,26 @@ export class BotBrain {
   }
 
   _vLunge({ dmg, kb, range }) {
+    // mid-dash? bail — extending someone else's dash (a dodge) would rocket
+    // us in ITS direction for the lunge's full duration
+    if (this.dashT > 0) return;
+    // never lunge at a player floating over the void — that dash is a ringout
+    if (!this.g.world.gravityFlipped && !this._groundAt(this.knownPos.x, this.knownPos.z)) return;
+    const d = this.avatar.position.distanceTo(this.knownPos);
     const dir = _v1.copy(this.knownPos).sub(this.avatar.position).normalize().clone();
     this._dash(dir);
+    if (this.dashT <= 0) return;   // no charge — the dash never happened
+    // hold the dash exactly long enough to arrive (dash speed decays with
+    // dashT/0.26, so covered distance is S*(0.55T + 0.865T²) — solve for T)
+    const S = this.stats.dashSpeed || 34;
+    const T = (-0.55 + Math.sqrt(0.3025 + 3.46 * d / S)) / 1.73;
+    this.dashT = Math.min(0.7, Math.max(0.24, T));
     this._queue.push({
-      t: 0.24,
+      t: this.dashT - 0.02,
       fn: () => {
         const g = this.g;
         if (this.avatar.position.distanceTo(g.player.position) < range + 1) {
-          if (g.player.takeDamage(dmg, this.avatar.position, {})) {
+          if (g.player.takeDamage(dmg * this.dmgMul, this.avatar.position, {})) {
             const push = _v1.copy(g.player.position).sub(this.avatar.position).setY(0).normalize().multiplyScalar(kb);
             push.y = kb * 0.5;
             g.player.applyKnockback(push);
@@ -448,7 +504,7 @@ export class BotBrain {
     g.effects.impactBurst(c, { color: 0xffaa66, size: 3 });
     g.audio?.play('explosion');
     if (g.player.alive && g.player.position.distanceTo(this.avatar.position) < r + 0.8) {
-      if (g.player.takeDamage(dmg, this.avatar.position, {})) {
+      if (g.player.takeDamage(dmg * this.dmgMul, this.avatar.position, {})) {
         const push = _v2.copy(g.player.position).sub(this.avatar.position).setY(0).normalize().multiplyScalar(kb);
         push.y = kb * 0.7;
         g.player.applyKnockback(push);
@@ -458,9 +514,15 @@ export class BotBrain {
   }
 
   _vBlinkAway() {
-    const away = _v1.copy(this.avatar.position).sub(this.knownPos).setY(0);
+    if (this.dashT > 0) return;   // same hijack hazard as _vLunge
+    const a = this.avatar.position;
+    const away = _v1.copy(a).sub(this.knownPos).setY(0);
     if (away.lengthSq() < 0.01) away.set(1, 0, 0);
     away.normalize();
+    // an escape onto thin air is just a slower death — retreat toward land
+    if (!this.g.world.gravityFlipped && !this._groundAt(a.x + away.x * 10, a.z + away.z * 10)) {
+      away.copy(this._safeGoal().sub(a).setY(0).normalize());
+    }
     away.y = 0.55;
     this.g.effects.burst(this.avatar.center(_v2).clone(), { count: 14, color: 0xaaddff, speed: 6, size: 0.25, life: 0.3 });
     this._dash(away.normalize());
@@ -474,7 +536,7 @@ export class BotBrain {
       const dir = this.aimAtPlayer(speed);
       this.g.projectiles.spawn({
         pos: from, vel: dir.multiplyScalar(speed),
-        owner: 'enemy', damage: dmg, color, size,
+        owner: 'enemy', damage: dmg * this.dmgMul, color, size,
         gravity: 0, life: 5, knockback: 14, aoe,
       });
       this.g.audio?.play('enemyShot');
@@ -588,6 +650,7 @@ export class BotBrain {
     const g = this.g, a = this.avatar;
     if (!a.alive) return;
     for (const k in this.cds) this.cds[k] = Math.max(0, this.cds[k] - dt);
+    if (this._dodgeCd > 0) this._dodgeCd -= dt;
     // queued volley shots
     for (let i = this._queue.length - 1; i >= 0; i--) {
       this._queue[i].t -= dt;
@@ -662,7 +725,7 @@ const BOT_KITS = {
   brawler: {
     range: 4,
     basic: melee(11, 3.2, 0.7),
-    gap: { cd: 5, minD: 5, maxD: 26, use: (b) => b._vLunge({ dmg: 14, kb: 12, range: 3.5 }) },
+    gap: { cd: 5, minD: 5, maxD: 24, use: (b) => b._vLunge({ dmg: 14, kb: 12, range: 3.5 }) },
     burst: { cd: 9, use: (b) => b._vSlam({ dmg: 18, r: 5, kb: 16 }) },
     escape: { cd: 10, hpBelow: 0.3, use: (b) => b._vBlinkAway() },
     ult: { cd: 24, use: (b) => b._vSlam({ dmg: 30, r: 8, kb: 22 }) },
@@ -686,7 +749,7 @@ const BOT_KITS = {
   assassin: {
     range: 14,
     basic: bolt(7, 42, 0.4, 0x9a5fff, { dps: 3, t: 2 }),
-    gap: { cd: 6, minD: 10, maxD: 28, use: (b) => b._vLunge({ dmg: 12, kb: 8, range: 3.2 }) },
+    gap: { cd: 6, minD: 8, maxD: 20, use: (b) => b._vLunge({ dmg: 12, kb: 8, range: 3.2 }) },
     burst: { cd: 8, use: (b) => b._vVolley({ n: 3, dmg: 6, speed: 40, spread: 0.06, color: 0x9a5fff, interval: 0.1, poison: { dps: 3, t: 2 } }) },
     escape: { cd: 7, hpBelow: 0.4, use: (b) => b._vBlinkAway() },
     ult: { cd: 24, use: (b) => b._vVolley({ n: 5, dmg: 6, speed: 44, spread: 0.08, color: 0xc09aff, interval: 0.09, poison: { dps: 4, t: 2.5 } }) },

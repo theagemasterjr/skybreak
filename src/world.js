@@ -415,9 +415,12 @@ export class World {
 
   // ---- island construction ----
   _buildIslands() {
+    // kept on `this` (not just a local) so a later overtime event can build
+    // a replacement terrain mesh with the same material — see reshapeIsland
     const islandMat = new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 1, metalness: 0, flatShading: true,
     });
+    this.islandMat = islandMat;
 
     for (const d of this.mapDef.islands) {
       const island = {
@@ -435,11 +438,59 @@ export class World {
       const mesh = new THREE.Mesh(geo, islandMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.userData.isTerrain = true;   // lets reshapeIsland find/replace it
       grp.add(mesh);
 
       const rng = mulberry32(d.seed * 977 + 5);
       this._decorate(island, d, rng, grp);
     }
+  }
+
+  // ---- overtime: shrink an island in place -------------------------------
+  // Rebuilds an island's terrain mesh at a smaller radius, keeping the same
+  // island object/group identity (so dais platforms, decorations and any
+  // event bookkeeping keyed off the island keep working). Trees/rocks that
+  // now sit past the new edge are detached from the group and returned so
+  // the caller can animate them falling. Grass carpets are left alone (one
+  // InstancedMesh for the whole island, not worth partially rebuilding), and
+  // anything carrying a light (crystal clusters) is NEVER touched here —
+  // adding/removing a light mid-fight forces a full shader recompile freeze.
+  reshapeIsland(island, newR) {
+    const grp = island.group;
+    if (!grp) return [];
+    const oldMesh = grp.children.find((c) => c.userData?.isTerrain);
+    if (oldMesh) {
+      grp.remove(oldMesh);
+      oldMesh.geometry.dispose();
+    }
+    island.R = newR;
+    const geo = buildIslandGeometry(island, island.depth, island.edgeSeed, {}, this.palette);
+    const mesh = new THREE.Mesh(geo, this.islandMat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.isTerrain = true;
+    grp.add(mesh);
+
+    const dropped = [];
+    const margin = newR * 1.05;
+    for (let i = grp.children.length - 1; i >= 0; i--) {
+      const child = grp.children[i];
+      if (child === mesh || child.isInstancedMesh) continue;
+      let hasLight = false;
+      child.traverse((o) => { if (o.isLight) hasLight = true; });
+      if (hasLight) continue;
+      const dx = child.position.x - island.x, dz = child.position.z - island.z;
+      if (Math.hypot(dx, dz) > margin) {
+        grp.remove(child);
+        this.hazardFx.add(child);
+        dropped.push(child);
+      }
+    }
+    this.columns = this.columns.filter((c) => (
+      c.island !== island || Math.hypot(c.x - island.x, c.z - island.z) <= newR
+    ));
+    this._otMutated = true;
+    return dropped;
   }
 
   _decorate(island, d, rng, grp = this.root) {

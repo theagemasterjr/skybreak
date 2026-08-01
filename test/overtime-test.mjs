@@ -18,6 +18,7 @@ globalThis.document = {
 const THREE = await import('three');
 const { World } = await import('../src/world.js');
 const { MAPS, MAP_DEFS } = await import('../src/maps/index.js');
+const { OT_AT } = await import('../src/overtime.js');
 
 let failures = 0;
 const fail = (msg) => { failures++; console.error('FAIL', msg); };
@@ -55,9 +56,12 @@ const step = (world, game, n) => {
 // per-map assertions, run after stepping well past OT (filled in per event task)
 const CHECKS = {
   classic(world, game) {
+    // side islands gone, main island still standing but carved down to the
+    // ruin's own footprint by the 4-hit main-island siege (SKY SANCTUM finale)
     if (world.islands.length !== 1) fail(`classic: expected 1 island left, got ${world.islands.length}`);
-    else if (world.islands[0].R < 25) fail('classic: wrong island survived');
-    else ok('classic: side islands gone, main island stands');
+    else if (world.islands[0].R > 13.5 || world.islands[0].R < 12.5) {
+      fail(`classic: main island did not settle at its final ruin-stage size (R=${world.islands[0].R})`);
+    } else ok('classic: side islands gone, main island carved down to the ruin');
   },
   tempest(world, game) {
     const R = world.overtime.R;
@@ -73,12 +77,16 @@ const CHECKS = {
     else ok('ember: the sea found the player');
   },
   godspire(world, game) {
-    // the crown (baseY 70.5) survives by design; everything else shatters
+    // the crown (baseY 70.5) survives by design; ledges, satellites, the
+    // base island, and the spire's own drum sections are all gone by the
+    // time the finale has finished playing out
     if (world.platforms.length !== 1 || world.platforms[0].baseY < 70) {
       fail(`godspire: expected only the crown to survive, got ${world.platforms.length} ledges`);
     } else ok('godspire: every ledge but the crown shattered');
-    if (world.islands.length !== 1) fail(`godspire: expected only the base island, got ${world.islands.length}`);
-    else ok('godspire: satellites crumbled');
+    if (world.islands.length !== 0) fail(`godspire: expected the base island to fall too, got ${world.islands.length} left`);
+    else ok('godspire: satellites and the base island are gone');
+    if (world.columns.length !== 0) fail(`godspire: expected the spire to fully collapse, got ${world.columns.length} sections left`);
+    else ok('godspire: the spire collapsed to nothing but the crown');
   },
   voidgarden(world, game) {
     const orbiting = world.platforms.filter((p) => p.orbit).length;
@@ -98,7 +106,9 @@ const CHECKS = {
   },
 };
 
-const STEPS = { classic: 60 * 165, tempest: 60 * 200, ember: 60 * 220, godspire: 60 * 230, voidgarden: 60 * 200, belt: 60 * 230 };
+// classic needs enough overtime runway for all 4 main-island siege hits to
+// land (last hit's mark starts ~50s into OT, impacts ~3.4s later)
+const STEPS = { classic: 60 * 200, tempest: 60 * 200, ember: 60 * 220, godspire: 60 * 230, voidgarden: 60 * 200, belt: 60 * 230 };
 
 for (const id of MAPS) {
   const def = MAP_DEFS[id];
@@ -115,7 +125,7 @@ for (const id of MAPS) {
     // before OT: nothing fires, timer counts
     step(world, game, 60 * 30);
     if (world.overtime.started) fail(`${id}: overtime started early`);
-    if (Math.abs(world.overtime.remaining - (124 - 30)) > 1) fail(`${id}: remaining wrong (${world.overtime.remaining})`);
+    if (Math.abs(world.overtime.remaining - (OT_AT - 30)) > 1) fail(`${id}: remaining wrong (${world.overtime.remaining})`);
 
     step(world, game, STEPS[id] - 60 * 30);
     if (!world.overtime.started) { fail(`${id}: overtime never started`); world.dispose(); break; }

@@ -200,15 +200,39 @@ class StormOvertime extends Overtime {
       if (!v || !v.alive) continue;
       const inside = Math.hypot(v.position.x, v.position.z) < this.R;
       let st = this.bolts.get(v);
-      if (!st) { st = { nextAt: this.t + 1.2, warnT: -1 }; this.bolts.set(v, st); }
+      if (!st) {
+        st = { nextAt: this.t + 1.2, warnT: -1, gustDir: new THREE.Vector3(1, 0, 0), gustVy: 0, gustNextAt: 0 };
+        this.bolts.set(v, st);
+      }
       if (inside) { st.warnT = -1; st.nextAt = Math.max(st.nextAt, this.t + 0.8); continue; }
 
-      // gust buffeting: shoved around while in the storm
+      // chaotic wind drag: caught in the storm, you get pulled around in a
+      // direction that wanders every 1-2s (a "gust"), not shoved in one line.
+      // Gusts only push LOCAL actors (local-model forces, like all hazard
+      // shoves here) — draw count varies per client, which is fine since no
+      // shared state depends on this rng stream after the storm schedule.
+      if (this.t >= st.gustNextAt) {
+        const ang = w.hazardRng() * Math.PI * 2;
+        st.gustDir.set(Math.cos(ang), 0, Math.sin(ang));
+        st.gustVy = (w.hazardRng() - 0.5) * 2;               // -1..1, mostly mild vertical shove
+        st.gustNextAt = this.t + 1 + w.hazardRng() * 1.2;     // resample every 1-2.2s
+      }
+
+      // gust buffeting: shoved around while in the storm (player locally;
+      // the bot via its brainVel so it fights the same wind the player does)
       const isPlayer = v === g.player;
-      if (isPlayer) {
-        v.vel.x += (Math.random() - 0.5) * 24 * dt;
-        v.vel.z += (Math.random() - 0.5) * 24 * dt;
-        v.windBoostT = 0.2;
+      const GUST_A = 28, GUST_AY = 10;
+      const gv = isPlayer ? v.vel : v.brainVel;
+      if (gv) {
+        gv.x += st.gustDir.x * GUST_A * dt;
+        gv.z += st.gustDir.z * GUST_A * dt;
+        gv.y += st.gustVy * GUST_AY * dt;
+      }
+      if (isPlayer) v.windBoostT = 0.2;
+      if (Math.random() < dt * 3) {
+        g.effects.glow(_v1.copy(v.position).add(_v2.set(st.gustDir.x, 0.6, st.gustDir.z)).clone(), {
+          color: 0x9fd8ff, size: 0.4, life: 0.18,
+        });
       }
 
       if (st.warnT >= 0) {
