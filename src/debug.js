@@ -33,6 +33,10 @@ export class DebugMenu {
         <button id="dbg-win">WIN ROUND</button>
         <button id="dbg-lose">LOSE ROUND</button>
       </div>
+      <div class="dbg-section">OVERTIME SANDBOX <span class="dbg-note">(solo — no bot, no waves)</span></div>
+      <div class="dbg-row">
+        <button id="dbg-sandbox">START ON CURRENT MAP</button>
+      </div>
       <div class="dbg-section">QUICK BOT DUEL</div>
       <div class="dbg-row">
         <button data-dbgbot="rookie">ROOKIE</button>
@@ -64,6 +68,20 @@ export class DebugMenu {
     $('#dbg-plus30').addEventListener('click', () => {
       this.game.world.hazardClock += 30;
       this._status('+30s on the round clock');
+    });
+    $('#dbg-sandbox').addEventListener('click', () => {
+      const g = this.game;
+      if (g.mode === 'duel' || g.mode === 'ffa') { this._status('leave the online match first'); return; }
+      if (g.mode === 'botduel') { g.botDuel._dispose(); g.botDuel.phase = 'idle'; }
+      let map = g.world.mapDef.id;
+      if (map === 'training' || !g.world.mapDef.makeOvertime) map = 'classic';
+      g.startRun(g.currentClassId || 'mage', map);
+      g.waves.reset();                              // no wave enemies — pure arena
+      if (g.world.overtime) {
+        g.world.overtime.debugForce = true;
+        g.world.hazardClock = 114;                  // overtime hits in ~10s
+        this._status(`sandbox on ${MAP_DEFS[map].name} — OT in 10s`);
+      }
     });
     $('#dbg-heal').addEventListener('click', () => {
       const p = this.game.player;

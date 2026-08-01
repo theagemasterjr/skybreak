@@ -119,5 +119,30 @@ ok('difficulty tiers scale');
   else ok(`storm avoidance: bot ran inward to r=${r.toFixed(1)}`);
 }
 
+// ---- fling survival: heavy knockbacks must not ring the bot out ----
+{
+  const { world, game, avatar, owner } = makeRig('brawler', MAP_DEFS.classic.spawns.duel[1]);
+  const brain = new BotBrain(game, owner, avatar, 'duelist');
+  const rng = (() => { let s = 42; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+  let minY = Infinity, flings = 0;
+  for (let i = 0; i < 60 * 45; i++) {
+    game.simTime += 1 / 60;
+    world.advanceClocks(1 / 60, 'playing');
+    // every ~4s: a player-ability-scale launch in a random direction
+    if (i % 240 === 120) {
+      const a = rng() * Math.PI * 2;
+      brain.vel.add(new THREE.Vector3(Math.cos(a) * 26, 12 + rng() * 8, Math.sin(a) * 26));
+      brain.grounded = false;
+      flings++;
+    }
+    brain.update(1 / 60);
+    minY = Math.min(minY, avatar.position.y);
+  }
+  const groundUnder = world.groundHeightBelow(avatar.position.x, avatar.position.z, avatar.position.y + 2, 0, 400);
+  if (minY < -70) fail(`fling: bot sank to y=${minY.toFixed(1)} — void recovery too weak`);
+  else if (groundUnder === null && avatar.position.y < 0) fail('fling: bot ended over the void, still falling');
+  else ok(`fling survival: ${flings} launches, minY=${minY.toFixed(1)}, back over land`);
+}
+
 console.log(failures ? `\n${failures} FAILURES` : '\nPASS');
 process.exit(failures ? 1 : 0);

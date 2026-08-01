@@ -603,7 +603,11 @@ export class Player {
       this.jumpsLeft = Math.max(this.jumpsLeft, 1);
       this.recoverAssistUsed = true;
     }
-    if (this.position.y < -110) {
+    // (in flipped gravity, "falling into the sky" mirrors the void reset —
+    // duel modes kill at skyKillY first; the +40 slack means this only
+    // catches solo/sandbox flights)
+    const skyLost = this.world.skyKillY !== null && this.position.y > this.world.skyKillY + 40;
+    if (this.position.y < -110 || skyLost) {
       this.position.copy(this.world.soloSpawn).y += 2;
       this.vel.set(0, 0, 0);
       this.trauma = 1;

@@ -20,6 +20,7 @@ export class Overtime {
   }
 
   get enabled() {
+    if (this.debugForce) return true;   // debug sandbox: overtime in solo
     const m = this.game?.mode;
     return m === 'duel' || m === 'ffa' || m === 'botduel';
   }

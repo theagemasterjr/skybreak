@@ -271,13 +271,17 @@ export class BotBrain {
         this._dash(wish.clone().setY(0.3).normalize());
       }
     }
-    // land lookahead: never strafe out over the void — if the spot we're
-    // drifting toward has no ground at all, steer hard back over an island
+    // land lookahead: never strafe blindly out over the void — if the spot
+    // we're drifting toward has no ground, steer toward safe land instead,
+    // and take the edge as a deliberate JUMP so gap crossings are flights,
+    // not stumbles (recovery flight carries us the rest of the way)
+    this._gapAhead = false;
     if (!this.g.world.gravityFlipped) {
       _v1.set(a.position.x + (this.vel.x + wish.x) * 0.6,
         a.position.y, a.position.z + (this.vel.z + wish.z) * 0.6);
       const ahead = this.g.world.groundHeightBelow(_v1.x, _v1.z, a.position.y + 4, 0, 200);
       if (ahead === null) {
+        this._gapAhead = true;
         const goal = this._safeGoal();
         wish.copy(goal).sub(a.position).setY(0);
         if (wish.length() > 1) wish.normalize().multiplyScalar(11);
@@ -292,9 +296,11 @@ export class BotBrain {
     const w = this.g.world, a = this.avatar;
     if (w.gravityFlipped) return;   // the Canopy's field handles "down" now
     if (this.grounded) {
-      // stay aerial: hop often, harder when the player holds high ground
+      // stay aerial: hop often, harder when the player holds high ground —
+      // and ALWAYS jump off an edge we're about to cross (height buys the
+      // crossing; the recovery flight finishes it)
       this.hopT -= dt;
-      if (toP.y > 2 || this.hopT <= 0) {
+      if (this._gapAhead || toP.y > 2 || this.hopT <= 0) {
         this._jump(13);
         this.jumpsLeft = 1;
         this.hopT = 0.9 + Math.random() * 1.4;
@@ -306,27 +312,36 @@ export class BotBrain {
         this._jump(12);
         this.jumpsLeft--;
       }
-      // void recovery: nothing below us — claw back toward land (mirrors the
-      // player's recovery assist: dash first, then a sustained climb)
+      // void recovery: the INSTANT there's no ground anywhere below, fight
+      // back toward land — arrest the fling, dash, then climb hard. (The
+      // player gets a free dash refill in the recover zone; the bot gets the
+      // same deal, once per fall.)
       this._recovering = false;
-      if (a.position.y < -8) {
-        const ground = w.groundHeightBelow(a.position.x, a.position.z, a.position.y + 2, 0, 300);
-        if (ground === null) {
-          this._recovering = true;
-          const goal = this._safeGoal();
-          const dir = _v1.copy(goal).sub(a.position).setY(0);
-          const dh = dir.length();
-          dir.normalize();
-          if (this.dashCharges > 0 && this.dashT <= 0 && this.vel.y < -8) {
+      const ground = w.groundHeightBelow(a.position.x, a.position.z, a.position.y + 2, 0, 400);
+      if (ground === null) {
+        this._recovering = true;
+        if (!this._recoverAssistUsed) {
+          this._recoverAssistUsed = true;
+          this.dashCharges = this.stats.maxDashes || 3;
+        }
+        const goal = this._safeGoal();
+        const dir = _v1.copy(goal).sub(a.position).setY(0);
+        const dh = dir.length();
+        dir.normalize();
+        if (this.dashT <= 0) {
+          // kill outward momentum fast, steer home
+          this.vel.x += (dir.x * 14 - this.vel.x) * Math.min(1, 6 * dt);
+          this.vel.z += (dir.z * 14 - this.vel.z) * Math.min(1, 6 * dt);
+          if (this.dashCharges > 0 && this.vel.y < -10) {
             const up = _v2.copy(dir); up.y = 0.85;
             this._dash(up.normalize());
-          } else if (this.dashT <= 0) {
-            this.vel.x += (dir.x * 13 - this.vel.x) * Math.min(1, 4 * dt);
-            this.vel.z += (dir.z * 13 - this.vel.z) * Math.min(1, 4 * dt);
-            // sustained climb while far from safety, easing off near it
-            this.vel.y = Math.max(this.vel.y, Math.min(11, 4 + dh * 0.2));
+          } else if (a.position.y < goal.y + 2) {
+            // sustained climb, stronger the further from safety we are
+            this.vel.y = Math.max(this.vel.y, Math.min(14, 6 + dh * 0.25));
           }
         }
+      } else {
+        this._recoverAssistUsed = false;
       }
     }
   }
@@ -490,6 +505,15 @@ export class BotBrain {
       }
     }
     if (frozen) { this.vel.x = 0; this.vel.z = 0; }
+
+    // hard fling cap: player knockback can shove the bot, never rocket it
+    // across the whole map and into the void
+    const flingH = Math.hypot(this.vel.x, this.vel.z);
+    if (this.dashT <= 0 && flingH > 30) {
+      this.vel.x *= 30 / flingH;
+      this.vel.z *= 30 / flingH;
+    }
+    if (this.vel.y < -55) this.vel.y = -55;
 
     a.position.addScaledVector(this.vel, dt);
 
