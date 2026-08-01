@@ -76,8 +76,9 @@ class SkyfallOvertime extends Overtime {
       })
     );
     group.add(shell);
-    const light = new THREE.PointLight(0xff7a30, 40, 90, 2);
-    group.add(light);
+    // NO PointLight here: adding/removing dynamic lights mid-fight forces
+    // three.js to recompile every material in the scene — a hard freeze per
+    // meteor. The additive shell + trail glows carry the fire look instead.
     const to = new THREE.Vector3(island.x, island.topY + 1, island.z);
     const from = to.clone().add(_v1.set(
       (w.hazardRng() - 0.5) * 80, 140, (w.hazardRng() - 0.5) * 80
